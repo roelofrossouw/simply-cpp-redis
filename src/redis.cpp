@@ -97,7 +97,7 @@ private:
         std::unique_ptr<redisContext, decltype(&redisFree)> connection;
     };
 
-    redis_endpoint initial_endpoint_{"redis1.1web.co.za", 6379};
+    redis_endpoint initial_endpoint_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
 
     redisContext &connection_for(const redis_endpoint &endpoint) const {
@@ -134,9 +134,6 @@ private:
         return reply;
     }
 };
-
-sc::redis::redis() : redis({{"redis1.1web.co.za", 6379}, {"redis2.1web.co.za", 6379}}) {
-}
 
 sc::redis::redis(std::vector<redis_endpoint> seeds) : implementation_(std::make_unique<implementation>(std::move(seeds))) {
 }

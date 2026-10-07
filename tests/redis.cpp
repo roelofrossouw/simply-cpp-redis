@@ -36,7 +36,10 @@ int main() {
     const auto hash_key = prefix + ":hash";
 
     SECTION("Redis Cluster string and hash values");
-    sc::redis client;
+    sc::redis client{std::vector<sc::redis_endpoint>{
+        {"redis1.1web.co.za", 6379},
+        {"redis2.1web.co.za", 6379},
+    }};
     key_cleanup cleanup{client, {first_key, second_key, hash_key}};
 
     client.set(first_key, "first-value");
