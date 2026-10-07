@@ -1,1 +1,1 @@
-Redis Cluster client for simply-cpp.
+Redis Cluster client for simply-cpp
