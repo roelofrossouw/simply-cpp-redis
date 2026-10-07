@@ -2,7 +2,9 @@
 #include <sc_test.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -35,8 +37,14 @@ int main() {
     const auto second_key = prefix + ":second";
     const auto hash_key = prefix + ":hash";
 
-    SECTION("Redis Cluster string and hash values");
-    sc::redis client{"redis1.1web.co.za"};
+    const auto *password = std::getenv("SC_REDIS_TEST_PASSWORD");
+    if (!password || !*password) {
+        std::cout << "Skipping authenticated Redis integration test: SC_REDIS_TEST_PASSWORD is not set\n";
+        return 77;
+    }
+
+    SECTION("Authenticated Redis string and hash values");
+    sc::redis client{sc::redis_connection{"vms", 20006, 0, true, password}};
     key_cleanup cleanup{client, {first_key, second_key, hash_key}};
 
     client.set(first_key, "first-value");
