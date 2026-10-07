@@ -17,6 +17,7 @@ cache.hset("key", "field", "value");
 const auto field = cache.hget("key", "field");
 ```
 
-The `redis` CTest is a small production integration test. It uses unique
-`sc-tmp:simply-cpp-redis:*` keys and removes them on exit. Provide its
-password via `SC_REDIS_TEST_PASSWORD`; it is never stored in the repository.
+The `cluster` and `authenticated` CTests are small production integration
+tests. They use unique `sc-tmp:simply-cpp-redis:*` keys and remove them on
+exit. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
+environment; it is never stored in the repository.

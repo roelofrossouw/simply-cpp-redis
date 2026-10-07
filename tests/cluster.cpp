@@ -2,9 +2,7 @@
 #include <sc_test.h>
 
 #include <chrono>
-#include <cstdlib>
 #include <iostream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -32,19 +30,16 @@ namespace {
 
 int main() {
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-    const std::string prefix = "sc-tmp:simply-cpp-redis:" + suffix;
+    const std::string prefix = "sc-tmp:simply-cpp-redis:cluster:" + suffix;
     const auto first_key = prefix + ":first";
     const auto second_key = prefix + ":second";
     const auto hash_key = prefix + ":hash";
 
-    const auto *password = std::getenv("SC_REDIS_TEST_PASSWORD");
-    if (!password || !*password) {
-        std::cout << "Skipping authenticated Redis integration test: SC_REDIS_TEST_PASSWORD is not set\n";
-        return 77;
-    }
-
-    SECTION("Authenticated Redis string and hash values");
-    sc::redis client{sc::redis_connection{"vms", 20006, 0, true, password}};
+    SECTION("Redis Cluster string and hash values");
+    sc::redis client{std::vector<sc::redis_endpoint>{
+        {"redis1.1web.co.za", 6379},
+        {"redis2.1web.co.za", 6379},
+    }};
     key_cleanup cleanup{client, {first_key, second_key, hash_key}};
 
     client.set(first_key, "first-value");
