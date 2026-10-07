@@ -135,6 +135,10 @@ private:
     }
 };
 
+sc::redis::redis(std::string server, const int port)
+    : redis(std::vector<redis_endpoint>{{std::move(server), port}}) {
+}
+
 sc::redis::redis(std::vector<redis_endpoint> seeds) : implementation_(std::make_unique<implementation>(std::move(seeds))) {
 }
 
