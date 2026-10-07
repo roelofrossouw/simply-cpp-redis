@@ -14,7 +14,6 @@ namespace sc {
 
     class redis {
     public:
-        redis();
         explicit redis(std::vector<redis_endpoint> seeds);
         ~redis();
 
