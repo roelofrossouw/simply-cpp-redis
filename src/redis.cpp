@@ -16,11 +16,11 @@ namespace {
         return reply.str ? std::string(reply.str, reply.len) : "unknown Redis error";
     }
 
-    std::string endpoint_key(const sc::redis_endpoint &endpoint) {
+    std::string endpoint_key(const sc::ip_endpoint &endpoint) {
         return endpoint.host + ':' + std::to_string(endpoint.port);
     }
 
-    void validate_endpoint(const sc::redis_endpoint &endpoint) {
+    void validate_endpoint(const sc::ip_endpoint &endpoint) {
         if (endpoint.host.empty() || endpoint.port <= 0 || endpoint.port > 65535) {
             throw std::invalid_argument("Redis endpoint must have a host and port from 1 to 65535");
         }
@@ -45,7 +45,7 @@ namespace {
         }
     }
 
-    sc::redis_endpoint redirect_endpoint(const redisReply &reply) {
+    sc::ip_endpoint redirect_endpoint(const redisReply &reply) {
         const auto message = reply_text(reply);
         const auto first_space = message.find(' ');
         const auto second_space = message.find(' ', first_space + 1);
@@ -59,7 +59,7 @@ namespace {
             throw std::runtime_error("Invalid Redis Cluster redirect address: " + address);
         }
 
-        sc::redis_endpoint endpoint{address.substr(0, port_separator), 0};
+        sc::ip_endpoint endpoint{address.substr(0, port_separator), 0};
         const auto port_text = std::string_view{address}.substr(port_separator + 1);
         const auto [end, error] = std::from_chars(port_text.data(), port_text.data() + port_text.size(), endpoint.port);
         if (error != std::errc{} || end != port_text.data() + port_text.size() || endpoint.host.empty() ||
@@ -72,7 +72,7 @@ namespace {
 
 class sc::redis::implementation {
 public:
-    implementation(std::vector<redis_endpoint> seeds, redis_connection connection)
+    implementation(std::vector<ip_endpoint> seeds, redis_connection connection)
         : connection_(std::move(connection)) {
         if (seeds.empty()) throw std::invalid_argument("At least one Redis endpoint is required");
         if (connection_.db < 0) throw std::invalid_argument("Redis database must not be negative");
@@ -96,7 +96,7 @@ public:
     }
 
     reply_ptr execute(const std::vector<std::string> &command) const {
-        redis_endpoint endpoint = initial_endpoint_;
+        ip_endpoint endpoint = initial_endpoint_;
         bool asking = false;
 
         for (int attempt = 0; attempt < 5; ++attempt) {
@@ -117,7 +117,7 @@ public:
 
 private:
     struct context {
-        context(const redis_endpoint &endpoint, const redis_connection &settings) : connection(nullptr, redisFree) {
+        context(const ip_endpoint &endpoint, const redis_connection &settings) : connection(nullptr, redisFree) {
             const timeval timeout{2, 0};
             connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port, timeout));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
@@ -130,18 +130,18 @@ private:
         std::unique_ptr<redisContext, decltype(&redisFree)> connection;
     };
 
-    redis_endpoint initial_endpoint_;
+    ip_endpoint initial_endpoint_;
     redis_connection connection_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
 
-    redisContext &connection_for(const redis_endpoint &endpoint) const {
+    redisContext &connection_for(const ip_endpoint &endpoint) const {
         const auto key = endpoint_key(endpoint);
         const auto [it, inserted] = contexts_.try_emplace(key);
         if (inserted) it->second = std::make_unique<context>(endpoint, connection_);
         return *it->second->connection;
     }
 
-    reply_ptr execute_on(const redis_endpoint &endpoint, const std::vector<std::string> &command,
+    reply_ptr execute_on(const ip_endpoint &endpoint, const std::vector<std::string> &command,
                          const bool asking) const {
         auto &connection = connection_for(endpoint);
         if (asking) {
@@ -170,16 +170,16 @@ private:
 };
 
 sc::redis::redis(std::string server, const int port)
-    : redis(std::vector<redis_endpoint>{{std::move(server), port}}) {
+    : redis(std::vector<ip_endpoint>{{std::move(server), port}}) {
 }
 
-sc::redis::redis(std::vector<redis_endpoint> seeds)
+sc::redis::redis(std::vector<ip_endpoint> seeds)
     : implementation_(std::make_unique<implementation>(std::move(seeds), redis_connection{})) {
 }
 
 sc::redis::redis(redis_connection connection)
     : implementation_(std::make_unique<implementation>(
-          std::vector<redis_endpoint>{{connection.host, connection.port}}, std::move(connection))) {
+          std::vector<ip_endpoint>{{connection.host, connection.port}}, std::move(connection))) {
 }
 
 sc::redis::~redis() = default;

@@ -8,7 +8,7 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.4.3)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 find_library(SC_REDIS_HIREDIS_LIBRARY NAMES hiredis HINTS ${hiredis_LIBRARY_DIRS} REQUIRED)
 
@@ -18,7 +18,7 @@ set(SOURCE_LINK_LIBRARIES)
 
 add_sc_object(redis
         LINK_LIBRARIES PkgConfig::hiredis
-        PUBLIC_LINK_LIBRARIES ${SC_REDIS_HIREDIS_LIBRARY})
+        PUBLIC_LINK_LIBRARIES sc::sc-core ${SC_REDIS_HIREDIS_LIBRARY})
 
 add_sc_libraries(DESCRIPTION "simply-cpp Redis Cluster client")
 target_compile_features(sc-redis PUBLIC cxx_std_17)
@@ -37,4 +37,4 @@ if (SC_REDIS_BUILD_TESTS)
     add_subdirectory(tests sc-redis-test)
 endif ()
 
-package_sc_module(DEV_DEPENDS libhiredis-dev)
+package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.4.3)" libhiredis-dev)

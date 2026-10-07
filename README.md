@@ -7,7 +7,10 @@ Redis Cluster `MOVED` and `ASK` redirections automatically.
 ```cpp
 sc::redis standalone_cache{"redis.example.com"};
 
-sc::redis cache({{"redis1.example.com", 6379}, {"redis2.example.com", 6379}});
+sc::redis cache(std::vector<sc::ip_endpoint>{
+    {"redis1.example.com", 6379},
+    {"redis2.example.com", 6379},
+});
 sc::redis authenticated_cache(
     {"redis.example.com", 6380, 0, true, "configured-elsewhere"});
 cache.set("key", "value");

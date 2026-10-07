@@ -1,17 +1,13 @@
 #pragma once
 
 #include <cstddef>
+#include <ip_endpoint.h>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace sc {
-    struct redis_endpoint {
-        std::string host;
-        int port = 6379;
-    };
-
     struct redis_connection {
         std::string host;
         int port = 6379;
@@ -23,7 +19,7 @@ namespace sc {
     class redis {
     public:
         explicit redis(std::string server, int port = 6379);
-        explicit redis(std::vector<redis_endpoint> seeds);
+        explicit redis(std::vector<ip_endpoint> seeds);
         explicit redis(redis_connection connection);
         ~redis();
 
