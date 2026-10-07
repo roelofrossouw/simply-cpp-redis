@@ -20,6 +20,31 @@ namespace {
         return endpoint.host + ':' + std::to_string(endpoint.port);
     }
 
+    void validate_endpoint(const sc::redis_endpoint &endpoint) {
+        if (endpoint.host.empty() || endpoint.port <= 0 || endpoint.port > 65535) {
+            throw std::invalid_argument("Redis endpoint must have a host and port from 1 to 65535");
+        }
+    }
+
+    void expect_ok(redisContext &connection, const std::vector<std::string> &command, const std::string_view operation) {
+        std::vector<const char *> arguments;
+        std::vector<std::size_t> lengths;
+        arguments.reserve(command.size());
+        lengths.reserve(command.size());
+        for (const auto &argument : command) {
+            arguments.push_back(argument.data());
+            lengths.push_back(argument.size());
+        }
+
+        reply_ptr reply{static_cast<redisReply *>(redisCommandArgv(
+                            &connection, static_cast<int>(arguments.size()), arguments.data(), lengths.data())),
+                        freeReplyObject};
+        if (!reply || reply->type != REDIS_REPLY_STATUS || reply_text(*reply) != "OK") {
+            throw std::runtime_error("Redis " + std::string(operation) + " failed: " +
+                                     (reply ? reply_text(*reply) : connection.errstr));
+        }
+    }
+
     sc::redis_endpoint redirect_endpoint(const redisReply &reply) {
         const auto message = reply_text(reply);
         const auto first_space = message.find(' ');
@@ -47,8 +72,14 @@ namespace {
 
 class sc::redis::implementation {
 public:
-    explicit implementation(std::vector<redis_endpoint> seeds) {
-        if (seeds.empty()) throw std::invalid_argument("At least one Redis Cluster seed is required");
+    implementation(std::vector<redis_endpoint> seeds, redis_connection connection)
+        : connection_(std::move(connection)) {
+        if (seeds.empty()) throw std::invalid_argument("At least one Redis endpoint is required");
+        if (connection_.db < 0) throw std::invalid_argument("Redis database must not be negative");
+        if (!connection_.decode_responses) {
+            throw std::invalid_argument("sc::redis supports decoded string responses only");
+        }
+        for (const auto &seed : seeds) validate_endpoint(seed);
         initial_endpoint_ = seeds.front();
 
         std::string last_error;
@@ -61,7 +92,7 @@ public:
                 last_error = error.what();
             }
         }
-        throw std::runtime_error("Unable to connect to any Redis Cluster seed: " + last_error);
+        throw std::runtime_error("Unable to connect to any Redis endpoint: " + last_error);
     }
 
     reply_ptr execute(const std::vector<std::string> &command) const {
@@ -86,24 +117,27 @@ public:
 
 private:
     struct context {
-        explicit context(const redis_endpoint &endpoint) : connection(nullptr, redisFree) {
+        context(const redis_endpoint &endpoint, const redis_connection &settings) : connection(nullptr, redisFree) {
             const timeval timeout{2, 0};
             connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port, timeout));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
             if (connection->err) throw std::runtime_error("Unable to connect to Redis " + endpoint_key(endpoint) +
                                                            ": " + connection->errstr);
+            if (!settings.password.empty()) expect_ok(*connection, {"AUTH", settings.password}, "AUTH");
+            if (settings.db != 0) expect_ok(*connection, {"SELECT", std::to_string(settings.db)}, "SELECT");
         }
 
         std::unique_ptr<redisContext, decltype(&redisFree)> connection;
     };
 
     redis_endpoint initial_endpoint_;
+    redis_connection connection_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
 
     redisContext &connection_for(const redis_endpoint &endpoint) const {
         const auto key = endpoint_key(endpoint);
         const auto [it, inserted] = contexts_.try_emplace(key);
-        if (inserted) it->second = std::make_unique<context>(endpoint);
+        if (inserted) it->second = std::make_unique<context>(endpoint, connection_);
         return *it->second->connection;
     }
 
@@ -139,7 +173,13 @@ sc::redis::redis(std::string server, const int port)
     : redis(std::vector<redis_endpoint>{{std::move(server), port}}) {
 }
 
-sc::redis::redis(std::vector<redis_endpoint> seeds) : implementation_(std::make_unique<implementation>(std::move(seeds))) {
+sc::redis::redis(std::vector<redis_endpoint> seeds)
+    : implementation_(std::make_unique<implementation>(std::move(seeds), redis_connection{})) {
+}
+
+sc::redis::redis(redis_connection connection)
+    : implementation_(std::make_unique<implementation>(
+          std::vector<redis_endpoint>{{connection.host, connection.port}}, std::move(connection))) {
 }
 
 sc::redis::~redis() = default;
