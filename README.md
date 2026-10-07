@@ -1,10 +1,12 @@
 # simply-cpp-redis
 
-`sc-redis` provides a small Redis Cluster client based on hiredis. Supply one
-or more seed nodes to the constructor; it follows Redis Cluster `MOVED` and
-`ASK` redirections automatically.
+`sc-redis` provides a small Redis Cluster client based on hiredis. Supply a
+single server or one or more Cluster seed nodes to the constructor; it follows
+Redis Cluster `MOVED` and `ASK` redirections automatically.
 
 ```cpp
+sc::redis standalone_cache{"redis.example.com"};
+
 sc::redis cache({{"redis1.example.com", 6379}, {"redis2.example.com", 6379}});
 cache.set("key", "value");
 const auto value = cache.get("key");
