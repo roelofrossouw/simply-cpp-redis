@@ -30,8 +30,8 @@ SC_REDIS_DEMO_SERVER="redis1.example.com;redis2.example.com:6380" sc-redis-demo
 ```
 
 `SC_REDIS_DEMO_SERVER` holds one server or several Cluster seed nodes,
-separated by `;` (quote the value in a shell). When it's unset or invalid the
-demo falls back to `127.0.0.1:6379`. The `example-sc-redis-demo` CTest uses the
+separated by `;` (quote the value in a shell). When it's unset or empty the
+demo uses `127.0.0.1:6379`; an invalid value is an error. The `example-sc-redis-demo` CTest uses the
 same variable, which build servers get from `/etc/simply-cpp/test.env`.
 
 Its source is `examples/sc-redis-demo.cpp`; the code below is copied from it at
