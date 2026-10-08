@@ -256,6 +256,46 @@ std::optional<std::string> sc::redis::hget(const std::string &key, const std::st
     return reply_text(*reply);
 }
 
+std::vector<std::optional<std::string>> sc::redis::hmget(const std::string &key,
+                                                         const std::vector<std::string> &fields) const {
+    if (fields.empty()) return {};
+    std::vector<std::string> command{"HMGET", key};
+    command.insert(command.end(), fields.begin(), fields.end());
+    const auto reply = implementation_->execute(command);
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != fields.size()) {
+        throw std::runtime_error("Redis HMGET returned an unexpected reply");
+    }
+    std::vector<std::optional<std::string>> values;
+    values.reserve(fields.size());
+    for (std::size_t i = 0; i < reply->elements; ++i) {
+        const auto &element = *reply->element[i];
+        if (element.type == REDIS_REPLY_NIL) values.emplace_back(std::nullopt);
+        else if (element.type == REDIS_REPLY_STRING) values.emplace_back(reply_text(element));
+        else throw std::runtime_error("Redis HMGET returned an unexpected value");
+    }
+    return values;
+}
+
+std::map<std::string, std::string> sc::redis::hgetall(const std::string &key) const {
+    const auto reply = implementation_->execute({"HGETALL", key});
+    // RESP2 answers with a flat array of field, value, field, value...; RESP3 with a map.
+    bool flat_pairs = reply->type == REDIS_REPLY_ARRAY;
+#ifdef REDIS_REPLY_MAP
+    flat_pairs = flat_pairs || reply->type == REDIS_REPLY_MAP;
+#endif
+    if (!flat_pairs || reply->elements % 2 != 0) throw std::runtime_error("Redis HGETALL returned an unexpected reply");
+    std::map<std::string, std::string> fields;
+    for (std::size_t i = 0; i < reply->elements; i += 2) {
+        const auto &field = *reply->element[i];
+        const auto &value = *reply->element[i + 1];
+        if (field.type != REDIS_REPLY_STRING || value.type != REDIS_REPLY_STRING) {
+            throw std::runtime_error("Redis HGETALL returned an unexpected value");
+        }
+        fields.emplace(reply_text(field), reply_text(value));
+    }
+    return fields;
+}
+
 std::size_t sc::redis::erase(const std::string &key) const {
     const auto reply = implementation_->execute({"DEL", key});
     if (reply->type != REDIS_REPLY_INTEGER || reply->integer < 0) {
