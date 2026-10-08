@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstddef>
-#include <ip_endpoint.h>
+#include <ip_endpoints.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -18,8 +18,9 @@ namespace sc {
 
     class redis {
     public:
-        explicit redis(std::string server, int port = 6379);
-        explicit redis(std::vector<ip_endpoint> seeds);
+        // One server or several Cluster seed nodes: "redis1;redis2:6380", a
+        // std::vector<ip_endpoint> or a braced list. Entries without a port use 6379.
+        explicit redis(ip_endpoints seeds);
         explicit redis(redis_connection connection);
         ~redis();
 
