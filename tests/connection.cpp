@@ -170,6 +170,19 @@ int main() {
     CHECK_EQ(client.get("first").value_or(""), std::string{"1"});
     CHECK(!client.get("missing").has_value());
 
+    SECTION("An error reply is a plain runtime_error, not redis_unavailable");
+    {
+        bool plain = false;
+        try {
+            client.hset("first", "field", "value"); // the fake server doesn't know HSET
+        } catch (const sc::redis_unavailable &) {
+        } catch (const std::runtime_error &) {
+            plain = true;
+        }
+        CHECK(plain);
+        CHECK_NOTHROW(client.set("still", "connected"));
+    }
+
     SECTION("A broken connection is replaced transparently");
     const int before = server.connections();
     server.drop_connections();
@@ -193,7 +206,7 @@ int main() {
         const auto waited = time([&] {
             try {
                 impatient.set("third", "3");
-            } catch (const std::runtime_error &) {
+            } catch (const sc::redis_unavailable &) {
                 threw = true;
             }
         });
@@ -213,7 +226,7 @@ int main() {
             try {
                 // 10.255.255.1 is not routed, so the connect gets no answer at all.
                 sc::redis unreachable{"10.255.255.1:6379", {.connect_timeout = 200ms}};
-            } catch (const std::runtime_error &) {
+            } catch (const sc::redis_unavailable &) {
                 threw = true;
             }
         });
