@@ -2,7 +2,6 @@
 
 #include <hiredis/hiredis.h>
 
-#include <charconv>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -47,26 +46,11 @@ namespace {
 
     sc::ip_endpoint redirect_endpoint(const redisReply &reply) {
         const auto message = reply_text(reply);
-        const auto first_space = message.find(' ');
-        const auto second_space = message.find(' ', first_space + 1);
-        if (first_space == std::string::npos || second_space == std::string::npos) {
+        try {
+            return sc::ip_endpoint::from_redis(message);
+        } catch (const std::invalid_argument &) {
             throw std::runtime_error("Invalid Redis Cluster redirect: " + message);
         }
-
-        const auto address = message.substr(second_space + 1);
-        const auto port_separator = address.rfind(':');
-        if (port_separator == std::string::npos) {
-            throw std::runtime_error("Invalid Redis Cluster redirect address: " + address);
-        }
-
-        sc::ip_endpoint endpoint{address.substr(0, port_separator), 0};
-        const auto port_text = std::string_view{address}.substr(port_separator + 1);
-        const auto [end, error] = std::from_chars(port_text.data(), port_text.data() + port_text.size(), endpoint.port);
-        if (error != std::errc{} || end != port_text.data() + port_text.size() || endpoint.host.empty() ||
-            endpoint.port <= 0 || endpoint.port > 65535) {
-            throw std::runtime_error("Invalid Redis Cluster redirect address: " + address);
-        }
-        return endpoint;
     }
 }
 

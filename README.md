@@ -20,6 +20,40 @@ cache.hset("key", "field", "value");
 const auto field = cache.hget("key", "field");
 ```
 
+## Demo
+
+`sc-redis-demo` is installed with the runtime package (`simply-cpp-redis`), so
+you can check a machine can reach Redis without installing the `-dev` package:
+
+```bash
+sc-redis-demo redis1.example.com redis2.example.com:6380   # default 127.0.0.1:6379
+```
+
+Its source is `examples/sc-redis-demo.cpp`; the code below is copied from it at
+configure time, so it always matches code that compiles:
+
+<!-- sc-example: examples/sc-redis-demo.cpp -->
+```cpp
+sc::timer sw;
+sc::redis cache{seeds};
+std::cout << "Connected after " << sw << '\n';
+
+cache.set(key, "Hello World!");
+std::cout << key << " = " << cache.get(key).value() << '\n';
+
+cache.hset(hash, "name", "simply-cpp");
+cache.hset(hash, "kind", "demo");
+std::cout << hash << " name = " << cache.hget(hash, "name").value()
+        << ", kind = " << cache.hget(hash, "kind").value() << '\n';
+
+cache.erase(key);
+cache.erase(hash);
+std::cout << "Done after " << sw << '\n';
+```
+<!-- /sc-example -->
+
+## Tests
+
 The `cluster` and `authenticated` CTests are small production integration
 tests. They use unique `sc-tmp:simply-cpp-redis:*` keys and remove them on
 exit. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
