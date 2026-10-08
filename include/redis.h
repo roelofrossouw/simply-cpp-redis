@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <ip_endpoints.h>
 #include <memory>
@@ -16,11 +17,22 @@ namespace sc {
         std::string password;
     };
 
+    // Settings for redis(ip_endpoints, redis_options), applied to every node it connects to.
+    struct redis_options {
+        std::string password;                                // sent with AUTH when not empty
+        int db = 0;                                          // SELECT; Redis Cluster only has 0
+        std::chrono::milliseconds connect_timeout{2000};
+        std::chrono::milliseconds command_timeout{0};        // 0: wait for the reply however long
+    };
+
     class redis {
     public:
         // One server or several Cluster seed nodes: "redis1;redis2:6380", a
         // std::vector<ip_endpoint> or a braced list. Entries without a port use 6379.
+        // Connects (and checks with PING) straight away, throwing if no seed answers.
+        // A connection that broke since its last use is replaced once, transparently.
         explicit redis(ip_endpoints seeds);
+        redis(ip_endpoints seeds, redis_options options);
         explicit redis(redis_connection connection);
         ~redis();
 
