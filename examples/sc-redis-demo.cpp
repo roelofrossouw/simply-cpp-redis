@@ -1,8 +1,10 @@
 // Writes and reads back a string and a hash, then removes them.
 // Servers come from SC_REDIS_DEMO_SERVER: one server, or Redis Cluster seed nodes separated
-// by ';' ("redis1:6379;redis2:6379"). Unset or invalid falls back to 127.0.0.1:6379.
+// by ';' ("redis1:6379;redis2:6379"). Unset or empty falls back to 127.0.0.1:6379;
+// an invalid value is an error.
 
-#include <demo_servers.h>
+#include <core.h>
+#include <ip_endpoints.h>
 #include <redis.h>
 #include <timer.h>
 
@@ -14,10 +16,8 @@ int main() {
     const std::string hash = "sc-tmp:sc-redis-demo:hash";
 
     try {
-        const auto seeds = sc::demo_servers("SC_REDIS_DEMO_SERVER", 6379);
-        std::cout << "Redis servers:";
-        for (const auto &seed : seeds) std::cout << ' ' << seed;
-        std::cout << '\n';
+        const sc::ip_endpoints seeds{sc::getenv("SC_REDIS_DEMO_SERVER", "127.0.0.1"), 6379};
+        std::cout << "Redis servers: " << seeds << '\n';
 
         // [readme]
         sc::timer sw;
