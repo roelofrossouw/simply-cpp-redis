@@ -8,7 +8,7 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.0)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.1)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 find_library(SC_REDIS_HIREDIS_LIBRARY NAMES hiredis HINTS ${hiredis_LIBRARY_DIRS} REQUIRED)
 
@@ -37,6 +37,6 @@ if (SC_REDIS_BUILD_TESTS)
     add_subdirectory(tests sc-redis-test)
 endif ()
 
-add_sc_example(sc-redis-demo RUN_AS_TEST ARGS redis1.1web.co.za redis2.1web.co.za)
+add_sc_example(sc-redis-demo RUN_AS_TEST)
 
-package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.0)" libhiredis-dev)
+package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.1)" libhiredis-dev)
