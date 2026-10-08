@@ -23,4 +23,7 @@ const auto field = cache.hget("key", "field");
 The `cluster` and `authenticated` CTests are small production integration
 tests. They use unique `sc-tmp:simply-cpp-redis:*` keys and remove them on
 exit. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
-environment; it is never stored in the repository.
+environment; it is never stored in the repository. On each build server,
+declare it in the root-owned `/etc/simply-cpp/test.env` file. Redis deployment
+sources that file immediately before running CTest, so it can also hold future
+test-only environment variables.
