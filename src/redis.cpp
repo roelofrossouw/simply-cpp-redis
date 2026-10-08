@@ -11,6 +11,12 @@
 namespace {
     using reply_ptr = std::unique_ptr<redisReply, decltype(&freeReplyObject)>;
 
+    // The connection itself failed (closed, reset or timed out), as opposed to Redis
+    // answering with an error. The connection is unusable afterwards.
+    struct connection_lost : std::runtime_error {
+        using std::runtime_error::runtime_error;
+    };
+
     std::string reply_text(const redisReply &reply) {
         return reply.str ? std::string(reply.str, reply.len) : "unknown Redis error";
     }
@@ -56,13 +62,12 @@ namespace {
 
 class sc::redis::implementation {
 public:
-    implementation(std::vector<ip_endpoint> seeds, redis_connection connection)
-        : connection_(std::move(connection)) {
+    implementation(std::vector<ip_endpoint> seeds, sc::redis_options options)
+        : options_(std::move(options)) {
         if (seeds.empty()) throw std::invalid_argument("At least one Redis endpoint is required");
-        if (connection_.db < 0) throw std::invalid_argument("Redis database must not be negative");
-        if (!connection_.decode_responses) {
-            throw std::invalid_argument("sc::redis supports decoded string responses only");
-        }
+        if (options_.db < 0) throw std::invalid_argument("Redis database must not be negative");
+        if (options_.connect_timeout.count() <= 0) throw std::invalid_argument("Redis connect timeout must be positive");
+        if (options_.command_timeout.count() < 0) throw std::invalid_argument("Redis command timeout must not be negative");
         for (const auto &seed : seeds) validate_endpoint(seed);
         initial_endpoint_ = seeds.front();
 
@@ -100,39 +105,74 @@ public:
     }
 
 private:
+    static timeval to_timeval(const std::chrono::milliseconds duration) {
+        return {static_cast<decltype(timeval::tv_sec)>(duration.count() / 1000),
+                static_cast<decltype(timeval::tv_usec)>(duration.count() % 1000 * 1000)};
+    }
+
     struct context {
-        context(const ip_endpoint &endpoint, const redis_connection &settings) : connection(nullptr, redisFree) {
-            const timeval timeout{2, 0};
-            connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port, timeout));
+        context(const ip_endpoint &endpoint, const sc::redis_options &options) : connection(nullptr, redisFree) {
+            connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port,
+                                                     to_timeval(options.connect_timeout)));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
             if (connection->err) throw std::runtime_error("Unable to connect to Redis " + endpoint_key(endpoint) +
                                                            ": " + connection->errstr);
-            if (!settings.password.empty()) expect_ok(*connection, {"AUTH", settings.password}, "AUTH");
-            if (settings.db != 0) expect_ok(*connection, {"SELECT", std::to_string(settings.db)}, "SELECT");
+            if (options.command_timeout.count() > 0 &&
+                redisSetTimeout(connection.get(), to_timeval(options.command_timeout)) != REDIS_OK) {
+                throw std::runtime_error("Unable to set the Redis command timeout for " + endpoint_key(endpoint));
+            }
+            if (!options.password.empty()) expect_ok(*connection, {"AUTH", options.password}, "AUTH");
+            if (options.db != 0) expect_ok(*connection, {"SELECT", std::to_string(options.db)}, "SELECT");
         }
 
         std::unique_ptr<redisContext, decltype(&redisFree)> connection;
     };
 
     ip_endpoint initial_endpoint_;
-    redis_connection connection_;
+    sc::redis_options options_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
 
-    redisContext &connection_for(const ip_endpoint &endpoint) const {
+    // The connection to endpoint, made if there is none yet. fresh says whether it was just made.
+    redisContext &connection_for(const ip_endpoint &endpoint, bool &fresh) const {
         const auto key = endpoint_key(endpoint);
-        const auto [it, inserted] = contexts_.try_emplace(key);
-        if (inserted) it->second = std::make_unique<context>(endpoint, connection_);
-        return *it->second->connection;
+        if (const auto existing = contexts_.find(key); existing != contexts_.end()) {
+            fresh = false;
+            return *existing->second->connection;
+        }
+        // Connect before storing, so a failed connect doesn't leave an empty entry behind.
+        auto made = std::make_unique<context>(endpoint, options_);
+        fresh = true;
+        return *contexts_.emplace(key, std::move(made)).first->second->connection;
     }
 
+    // A connection that failed (closed, reset, timed out) can't be used again; dropping it
+    // makes the next command to that endpoint reconnect.
+    void drop_connection(const ip_endpoint &endpoint) const { contexts_.erase(endpoint_key(endpoint)); }
+
+    // Runs command on endpoint. When a connection that was already open fails (it went stale
+    // while idle, or the server restarted), it is replaced and the command tried once more.
     reply_ptr execute_on(const ip_endpoint &endpoint, const std::vector<std::string> &command,
                          const bool asking) const {
-        auto &connection = connection_for(endpoint);
+        bool fresh = false;
+        try {
+            return execute_once(connection_for(endpoint, fresh), endpoint, command, asking);
+        } catch (const connection_lost &) {
+            if (fresh) throw;
+        }
+        return execute_once(connection_for(endpoint, fresh), endpoint, command, asking);
+    }
+
+    reply_ptr execute_once(redisContext &connection, const ip_endpoint &endpoint,
+                           const std::vector<std::string> &command, const bool asking) const {
         if (asking) {
             reply_ptr asking_reply{static_cast<redisReply *>(redisCommand(&connection, "ASKING")), freeReplyObject};
-            if (!asking_reply || asking_reply->type == REDIS_REPLY_ERROR) {
-                throw std::runtime_error("Redis ASKING failed: " +
-                                         (asking_reply ? reply_text(*asking_reply) : connection.errstr));
+            if (!asking_reply) {
+                const std::string error = connection.errstr;
+                drop_connection(endpoint);
+                throw connection_lost("Redis ASKING failed: " + error);
+            }
+            if (asking_reply->type == REDIS_REPLY_ERROR) {
+                throw std::runtime_error("Redis ASKING failed: " + reply_text(*asking_reply));
             }
         }
 
@@ -148,7 +188,11 @@ private:
         reply_ptr reply{static_cast<redisReply *>(redisCommandArgv(
                             &connection, static_cast<int>(arguments.size()), arguments.data(), lengths.data())),
                         freeReplyObject};
-        if (!reply) throw std::runtime_error("Redis command failed: " + std::string(connection.errstr));
+        if (!reply) {
+            const std::string error = connection.errstr;
+            drop_connection(endpoint);
+            throw connection_lost("Redis command failed: " + error);
+        }
         return reply;
     }
 };
@@ -163,13 +207,25 @@ namespace {
     }
 }
 
-sc::redis::redis(ip_endpoints seeds)
-    : implementation_(std::make_unique<implementation>(with_default_port(seeds), redis_connection{})) {
+sc::redis::redis(ip_endpoints seeds) : redis(std::move(seeds), redis_options{}) {
+}
+
+sc::redis::redis(ip_endpoints seeds, redis_options options)
+    : implementation_(std::make_unique<implementation>(with_default_port(seeds), std::move(options))) {
+}
+
+namespace {
+    sc::redis_options options_from(const sc::redis_connection &connection) {
+        if (!connection.decode_responses) {
+            throw std::invalid_argument("sc::redis supports decoded string responses only");
+        }
+        return {connection.password, connection.db};
+    }
 }
 
 sc::redis::redis(redis_connection connection)
     : implementation_(std::make_unique<implementation>(
-          std::vector<ip_endpoint>{{connection.host, connection.port}}, std::move(connection))) {
+          std::vector<ip_endpoint>{{connection.host, connection.port}}, options_from(connection))) {
 }
 
 sc::redis::~redis() = default;
