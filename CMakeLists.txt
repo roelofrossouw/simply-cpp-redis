@@ -24,6 +24,12 @@ add_sc_libraries(DESCRIPTION "simply-cpp Redis Cluster client")
 target_compile_features(sc-redis PUBLIC cxx_std_17)
 target_compile_features(sc-redis-shared PUBLIC cxx_std_17)
 
+
+
+add_executable(sample tests/sample.cpp)
+target_link_libraries(sample PRIVATE sc-redis-shared)
+
+
 install_sc_module(PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
 install(FILES cmake/SimplyCppFunctions.cmake cmake/sc_bootstrap.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sc-redis
