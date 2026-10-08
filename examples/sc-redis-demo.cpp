@@ -45,6 +45,9 @@ int main() {
 
     try {
         const auto seeds = demo_servers("SC_REDIS_DEMO_SERVER", 6379);
+        for (const auto &seed: seeds) {
+            std::cout << "Got seed: " << seed << std::endl;
+        }
         std::cout << "Redis servers:";
         for (const auto &seed : seeds) std::cout << ' ' << seed;
         std::cout << '\n';
