@@ -11,10 +11,10 @@
 namespace {
     using reply_ptr = std::unique_ptr<redisReply, decltype(&freeReplyObject)>;
 
-    // The connection itself failed (closed, reset or timed out), as opposed to Redis
-    // answering with an error. The connection is unusable afterwards.
-    struct connection_lost : std::runtime_error {
-        using std::runtime_error::runtime_error;
+    // An open connection failed (closed, reset or timed out), as opposed to Redis answering
+    // with an error. The connection is unusable afterwards.
+    struct connection_lost : sc::redis_unavailable {
+        using sc::redis_unavailable::redis_unavailable;
     };
 
     std::string reply_text(const redisReply &reply) {
@@ -81,7 +81,7 @@ public:
                 last_error = error.what();
             }
         }
-        throw std::runtime_error("Unable to connect to any Redis endpoint: " + last_error);
+        throw sc::redis_unavailable("Unable to connect to any Redis endpoint: " + last_error);
     }
 
     reply_ptr execute(const std::vector<std::string> &command) const {
@@ -115,8 +115,8 @@ private:
             connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port,
                                                      to_timeval(options.connect_timeout)));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
-            if (connection->err) throw std::runtime_error("Unable to connect to Redis " + endpoint_key(endpoint) +
-                                                           ": " + connection->errstr);
+            if (connection->err) throw sc::redis_unavailable("Unable to connect to Redis " + endpoint_key(endpoint) +
+                                                              ": " + connection->errstr);
             if (options.command_timeout.count() > 0 &&
                 redisSetTimeout(connection.get(), to_timeval(options.command_timeout)) != REDIS_OK) {
                 throw std::runtime_error("Unable to set the Redis command timeout for " + endpoint_key(endpoint));

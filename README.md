@@ -33,8 +33,10 @@ not hang when a server stops answering.
 
 A client connects when it's constructed and keeps its connections open. If one
 breaks while idle (Redis restarted, or a firewall dropped it), the next command
-replaces it and runs again once, transparently; a failure on a fresh connection
-is thrown as a `std::runtime_error`.
+replaces it and runs again once, transparently. When Redis can't be reached
+(no connection, or it broke or timed out again) the client throws
+`sc::redis_unavailable`; Redis answering with an error (such as `WRONGTYPE`) is a
+plain `std::runtime_error`, so an outage can be told apart from a bad command.
 
 ## Demo
 

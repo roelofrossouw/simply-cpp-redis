@@ -5,6 +5,7 @@
 #include <ip_endpoints.h>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,13 @@ namespace sc {
         int db = 0;
         bool decode_responses = true;
         std::string password;
+    };
+
+    // Thrown when Redis can't be reached: no connection could be made, or one broke or timed out
+    // (after the one transparent retry). Redis answering with an error (WRONGTYPE, ...) is a
+    // plain std::runtime_error instead, so callers can tell an outage from a bad command.
+    struct redis_unavailable : std::runtime_error {
+        using std::runtime_error::runtime_error;
     };
 
     // Settings for redis(ip_endpoints, redis_options), applied to every node it connects to.
