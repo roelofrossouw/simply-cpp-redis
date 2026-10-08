@@ -1,16 +1,15 @@
 # simply-cpp-redis
 
 `sc-redis` provides a small Redis Cluster client based on hiredis. Supply a
-single server or one or more Cluster seed nodes to the constructor; it follows
-Redis Cluster `MOVED` and `ASK` redirections automatically.
+single server or one or more Cluster seed nodes to the constructor as an
+`sc::ip_endpoints`: a `;`-separated string, a `std::vector<sc::ip_endpoint>` or a
+braced list. Entries without a port use 6379. It follows Redis Cluster `MOVED`
+and `ASK` redirections automatically.
 
 ```cpp
 sc::redis standalone_cache{"redis.example.com"};
-
-sc::redis cache(std::vector<sc::ip_endpoint>{
-    {"redis1.example.com", 6379},
-    {"redis2.example.com", 6379},
-});
+sc::redis cache{"redis1.example.com;redis2.example.com:6380"};
+sc::redis listed_cache({{"redis1.example.com", 6379}, {"redis2.example.com", 6380}});
 sc::redis authenticated_cache(
     {"redis.example.com", 6380, 0, true, "configured-elsewhere"});
 cache.set("key", "value");

@@ -153,12 +153,18 @@ private:
     }
 };
 
-sc::redis::redis(std::string server, const int port)
-    : redis(std::vector<ip_endpoint>{{std::move(server), port}}) {
+namespace {
+    std::vector<sc::ip_endpoint> with_default_port(const sc::ip_endpoints &seeds) {
+        std::vector<sc::ip_endpoint> endpoints = seeds;
+        for (auto &endpoint: endpoints) {
+            if (endpoint.port == 0) endpoint.port = 6379;
+        }
+        return endpoints;
+    }
 }
 
-sc::redis::redis(std::vector<ip_endpoint> seeds)
-    : implementation_(std::make_unique<implementation>(std::move(seeds), redis_connection{})) {
+sc::redis::redis(ip_endpoints seeds)
+    : implementation_(std::make_unique<implementation>(with_default_port(seeds), redis_connection{})) {
 }
 
 sc::redis::redis(redis_connection connection)
