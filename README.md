@@ -17,6 +17,8 @@ const auto value = cache.get("key");
 
 cache.hset("key", "field", "value");
 const auto field = cache.hget("key", "field");
+const auto fields = cache.hmget("key", {"field", "other"}); // std::vector<std::optional<std::string>>
+const auto all = cache.hgetall("key");                     // std::map<std::string, std::string>
 ```
 
 `redis_options` sets a password, database and timeouts for every node the client

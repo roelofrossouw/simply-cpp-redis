@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <map>
 #include <ip_endpoints.h>
 #include <memory>
 #include <optional>
@@ -52,6 +53,13 @@ namespace sc {
 
         void hset(const std::string &key, const std::string &field, const std::string &value) const;
         [[nodiscard]] std::optional<std::string> hget(const std::string &key, const std::string &field) const;
+
+        // The values of fields, in the same order; nullopt for a field (or key) that doesn't exist.
+        [[nodiscard]] std::vector<std::optional<std::string>> hmget(const std::string &key,
+                                                                    const std::vector<std::string> &fields) const;
+
+        // Every field of the hash with its value; empty when the key doesn't exist.
+        [[nodiscard]] std::map<std::string, std::string> hgetall(const std::string &key) const;
 
         std::size_t erase(const std::string &key) const;
 

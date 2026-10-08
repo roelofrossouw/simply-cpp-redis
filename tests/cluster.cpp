@@ -52,5 +52,20 @@ int main() {
     CHECK_EQ(client.hget(hash_key, "name"), std::optional<std::string>{"simply-cpp"});
     CHECK_EQ(client.hget(hash_key, "kind"), std::optional<std::string>{"integration-test"});
 
+    SECTION("Several hash fields at once");
+    const auto values = client.hmget(hash_key, {"kind", "missing", "name"});
+    CHECK_EQ(values.size(), std::size_t{3});
+    if (values.size() == 3) {
+        CHECK_EQ(values[0], std::optional<std::string>{"integration-test"});
+        CHECK(!values[1].has_value());
+        CHECK_EQ(values[2], std::optional<std::string>{"simply-cpp"});
+    }
+    CHECK(client.hmget(hash_key, {}).empty());
+    CHECK_EQ(client.hmget(prefix + ":no-such-hash", {"name"}).size(), std::size_t{1});
+
+    const auto all = client.hgetall(hash_key);
+    CHECK((all == std::map<std::string, std::string>{{"kind", "integration-test"}, {"name", "simply-cpp"}}));
+    CHECK(client.hgetall(prefix + ":no-such-hash").empty());
+
     TEST_SUMMARY();
 }
