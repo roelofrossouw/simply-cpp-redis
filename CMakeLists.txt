@@ -8,7 +8,7 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.4.3)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.0)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 find_library(SC_REDIS_HIREDIS_LIBRARY NAMES hiredis HINTS ${hiredis_LIBRARY_DIRS} REQUIRED)
 
@@ -24,12 +24,6 @@ add_sc_libraries(DESCRIPTION "simply-cpp Redis Cluster client")
 target_compile_features(sc-redis PUBLIC cxx_std_17)
 target_compile_features(sc-redis-shared PUBLIC cxx_std_17)
 
-
-
-add_executable(sample tests/sample.cpp)
-target_link_libraries(sample PRIVATE sc-redis-shared)
-
-
 install_sc_module(PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
 install(FILES cmake/SimplyCppFunctions.cmake cmake/sc_bootstrap.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sc-redis
@@ -43,4 +37,6 @@ if (SC_REDIS_BUILD_TESTS)
     add_subdirectory(tests sc-redis-test)
 endif ()
 
-package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.4.3)" libhiredis-dev)
+add_sc_example(sc-redis-demo RUN_AS_TEST ARGS redis1.1web.co.za redis2.1web.co.za)
+
+package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.0)" libhiredis-dev)
