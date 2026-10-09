@@ -296,6 +296,72 @@ std::map<std::string, std::string> sc::redis::hgetall(const std::string &key) co
     return fields;
 }
 
+namespace {
+    std::size_t count_reply(const redisReply &reply, const std::string_view command) {
+        if (reply.type != REDIS_REPLY_INTEGER || reply.integer < 0) {
+            throw std::runtime_error("Redis " + std::string(command) + " returned an unexpected reply");
+        }
+        return static_cast<std::size_t>(reply.integer);
+    }
+}
+
+std::size_t sc::redis::sadd(const std::string &key, const std::string &member) const {
+    return sadd(key, std::vector{member});
+}
+
+std::size_t sc::redis::sadd(const std::string &key, const std::initializer_list<std::string> members) const {
+    return sadd(key, std::vector<std::string>{members});
+}
+
+std::size_t sc::redis::sadd(const std::string &key, const std::vector<std::string> &members) const {
+    if (members.empty()) return 0;
+    std::vector<std::string> command{"SADD", key};
+    command.insert(command.end(), members.begin(), members.end());
+    return count_reply(*implementation_->execute(command), "SADD");
+}
+
+std::size_t sc::redis::srem(const std::string &key, const std::string &member) const {
+    return srem(key, std::vector{member});
+}
+
+std::size_t sc::redis::srem(const std::string &key, const std::initializer_list<std::string> members) const {
+    return srem(key, std::vector<std::string>{members});
+}
+
+std::size_t sc::redis::srem(const std::string &key, const std::vector<std::string> &members) const {
+    if (members.empty()) return 0;
+    std::vector<std::string> command{"SREM", key};
+    command.insert(command.end(), members.begin(), members.end());
+    return count_reply(*implementation_->execute(command), "SREM");
+}
+
+std::size_t sc::redis::scard(const std::string &key) const {
+    return count_reply(*implementation_->execute({"SCARD", key}), "SCARD");
+}
+
+std::set<std::string> sc::redis::smembers(const std::string &key) const {
+    const auto reply = implementation_->execute({"SMEMBERS", key});
+    // RESP2 answers with an array; RESP3 with a set.
+    bool members_list = reply->type == REDIS_REPLY_ARRAY;
+#ifdef REDIS_REPLY_SET
+    members_list = members_list || reply->type == REDIS_REPLY_SET;
+#endif
+    if (!members_list) throw std::runtime_error("Redis SMEMBERS returned an unexpected reply");
+    std::set<std::string> members;
+    for (std::size_t i = 0; i < reply->elements; ++i) {
+        const auto &member = *reply->element[i];
+        if (member.type != REDIS_REPLY_STRING) throw std::runtime_error("Redis SMEMBERS returned an unexpected value");
+        members.insert(reply_text(member));
+    }
+    return members;
+}
+
+bool sc::redis::sismember(const std::string &key, const std::string &member) const {
+    const auto reply = implementation_->execute({"SISMEMBER", key, member});
+    if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis SISMEMBER returned an unexpected reply");
+    return reply->integer == 1;
+}
+
 std::size_t sc::redis::erase(const std::string &key) const {
     const auto reply = implementation_->execute({"DEL", key});
     if (reply->type != REDIS_REPLY_INTEGER || reply->integer < 0) {

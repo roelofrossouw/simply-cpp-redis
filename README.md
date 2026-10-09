@@ -19,6 +19,12 @@ cache.hset("key", "field", "value");
 const auto field = cache.hget("key", "field");
 const auto fields = cache.hmget("key", {"field", "other"}); // std::vector<std::optional<std::string>>
 const auto all = cache.hgetall("key");                     // std::map<std::string, std::string>
+
+cache.sadd("tags", {"cpp", "redis"});         // members added: 2
+cache.srem("tags", "redis");                  // members removed: 1
+const auto count = cache.scard("tags");       // std::size_t
+const auto tags = cache.smembers("tags");     // std::set<std::string>
+const bool tagged = cache.sismember("tags", "cpp");
 ```
 
 `redis_options` sets a password, database and timeouts for every node the client
@@ -78,9 +84,18 @@ SC_SHOW(cache.hget("sc-tmp:demo:user", "name"));
 SC_SHOW(cache.hmget("sc-tmp:demo:user", {"name", "colour"}));
 SC_SHOW(cache.hgetall("sc-tmp:demo:user"));
 
+sc::console::heading("A set: members without order or repeats");
+SC_SHOW(cache.sadd("sc-tmp:demo:tags", {"cpp", "redis", "demo"})); // members added
+SC_SHOW(cache.sadd("sc-tmp:demo:tags", "cpp"));                   // already there
+SC_SHOW(cache.scard("sc-tmp:demo:tags"));
+SC_SHOW(cache.sismember("sc-tmp:demo:tags", "redis"));
+SC_SHOW(cache.srem("sc-tmp:demo:tags", "demo"));
+SC_SHOW(cache.smembers("sc-tmp:demo:tags"));
+
 sc::console::heading("Removing them");
 SC_SHOW(cache.erase("sc-tmp:demo:greeting")); // keys removed
 SC_SHOW(cache.erase("sc-tmp:demo:user"));
+SC_SHOW(cache.erase("sc-tmp:demo:tags"));
 SC_SHOW(cache.get("sc-tmp:demo:greeting"));
 ```
 <!-- /sc-example -->
