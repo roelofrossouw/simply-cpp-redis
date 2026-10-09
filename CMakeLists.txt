@@ -10,6 +10,10 @@ message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
 find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.11)
 config_or_install_package(hiredis libhiredis-dev hiredis)
+if (SC_REDIS_HIREDIS_LIBRARY AND NOT EXISTS "${SC_REDIS_HIREDIS_LIBRARY}")
+    message(STATUS "hiredis: the cached library location is gone, looking again")
+    unset(SC_REDIS_HIREDIS_LIBRARY CACHE)
+endif ()
 find_library(SC_REDIS_HIREDIS_LIBRARY NAMES hiredis HINTS ${hiredis_LIBRARY_DIRS} REQUIRED)
 
 set(SOURCE_OBJECTS include/redis.h)

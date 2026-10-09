@@ -100,6 +100,13 @@ SC_SHOW(cache.get("sc-tmp:demo:greeting"));
 ```
 <!-- /sc-example -->
 
+## Building locally
+
+Run `bash scripts/install.sh` to configure, build, test, package, and install.
+If a Homebrew upgrade removes the cached hiredis library, reconfiguring
+automatically locates the installed version; deleting the build directory is
+not necessary.
+
 ## Tests
 
 The `cluster` and `authenticated` CTests are small production integration
