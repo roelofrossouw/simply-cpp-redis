@@ -2,10 +2,12 @@
 
 #include <chrono>
 #include <cstddef>
+#include <initializer_list>
 #include <map>
 #include <ip_endpoints.h>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -60,6 +62,20 @@ namespace sc {
 
         // Every field of the hash with its value; empty when the key doesn't exist.
         [[nodiscard]] std::map<std::string, std::string> hgetall(const std::string &key) const;
+
+        // Sets. sadd and srem return how many members were added or removed - members already
+        // there (or not there) don't count. A key that doesn't exist is an empty set. They take one
+        // member, a braced list ({"a", "b"}, which would otherwise also fit a std::string) or a
+        // vector.
+        std::size_t sadd(const std::string &key, const std::string &member) const;
+        std::size_t sadd(const std::string &key, std::initializer_list<std::string> members) const;
+        std::size_t sadd(const std::string &key, const std::vector<std::string> &members) const;
+        std::size_t srem(const std::string &key, const std::string &member) const;
+        std::size_t srem(const std::string &key, std::initializer_list<std::string> members) const;
+        std::size_t srem(const std::string &key, const std::vector<std::string> &members) const;
+        [[nodiscard]] std::size_t scard(const std::string &key) const;
+        [[nodiscard]] std::set<std::string> smembers(const std::string &key) const;
+        [[nodiscard]] bool sismember(const std::string &key, const std::string &member) const;
 
         std::size_t erase(const std::string &key) const;
 

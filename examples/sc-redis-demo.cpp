@@ -1,5 +1,5 @@
-// Stores and reads values in Redis: a string, a hash (one field, several, all of them), then
-// removes them. Each line shows a call, as written, and what it returned.
+// Stores and reads values in Redis: a string, a hash (one field, several, all of them), a set,
+// then removes them. Each line shows a call, as written, and what it returned.
 // The servers come from SC_REDIS_DEMO_SERVER: one server, or Redis Cluster seed nodes separated
 // by ';' ("redis1:6379;redis2:6379"). Unset or empty means 127.0.0.1:6379.
 
@@ -34,9 +34,18 @@ int main() {
         SC_SHOW(cache.hmget("sc-tmp:demo:user", {"name", "colour"}));
         SC_SHOW(cache.hgetall("sc-tmp:demo:user"));
 
+        sc::console::heading("A set: members without order or repeats");
+        SC_SHOW(cache.sadd("sc-tmp:demo:tags", {"cpp", "redis", "demo"})); // members added
+        SC_SHOW(cache.sadd("sc-tmp:demo:tags", "cpp"));                   // already there
+        SC_SHOW(cache.scard("sc-tmp:demo:tags"));
+        SC_SHOW(cache.sismember("sc-tmp:demo:tags", "redis"));
+        SC_SHOW(cache.srem("sc-tmp:demo:tags", "demo"));
+        SC_SHOW(cache.smembers("sc-tmp:demo:tags"));
+
         sc::console::heading("Removing them");
         SC_SHOW(cache.erase("sc-tmp:demo:greeting")); // keys removed
         SC_SHOW(cache.erase("sc-tmp:demo:user"));
+        SC_SHOW(cache.erase("sc-tmp:demo:tags"));
         SC_SHOW(cache.get("sc-tmp:demo:greeting"));
         // [/readme]
 
