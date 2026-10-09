@@ -32,9 +32,6 @@ install_sc_module(PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
 install(FILES cmake/SimplyCppFunctions.cmake cmake/sc_bootstrap.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sc-redis
         COMPONENT development)
-install(FILES tests/sc_test.h
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT development)
 
 if (SC_REDIS_BUILD_TESTS)
     enable_testing()
