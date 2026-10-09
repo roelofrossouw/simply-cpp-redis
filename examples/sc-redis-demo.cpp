@@ -3,14 +3,12 @@
 // The servers come from SC_REDIS_DEMO_SERVER: one server, or Redis Cluster seed nodes separated
 // by ';' ("redis1:6379;redis2:6379"). Unset or empty means 127.0.0.1:6379.
 
-#include <console.h>
-#include <core.h>
-#include <ip_endpoints.h>
-#include <redis.h>
-#include <timer.h>
-
 #include <iostream>
 #include <string>
+
+#include <sc.h>
+
+#include <redis.h>
 
 int main() {
     try {
