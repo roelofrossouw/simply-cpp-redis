@@ -62,26 +62,26 @@ configure time, so it always matches code that compiles:
 
 <!-- sc-example: examples/sc-redis-demo.cpp -->
 ```cpp
-heading("Connecting");
+sc::console::heading("Connecting");
 sc::redis cache{servers};
-std::cout << "  sc::redis cache{servers}\n      -> connected in " << sw << '\n';
+sc::console::show_text("sc::redis cache{servers};", "connected in " + std::string(sw));
 
-heading("A string value");
-STEP(cache.set("sc-tmp:demo:greeting", "Hello World!"));
-SHOW(cache.get("sc-tmp:demo:greeting"));
-SHOW(cache.get("sc-tmp:demo:missing")); // std::optional: no such key
+sc::console::heading("A string value");
+SC_STEP(cache.set("sc-tmp:demo:greeting", "Hello World!"));
+SC_SHOW(cache.get("sc-tmp:demo:greeting"));
+SC_SHOW(cache.get("sc-tmp:demo:missing")); // std::optional: no such key
 
-heading("A hash, one field at a time and several at once");
-STEP(cache.hset("sc-tmp:demo:user", "name", "simply-cpp"));
-STEP(cache.hset("sc-tmp:demo:user", "kind", "library"));
-SHOW(cache.hget("sc-tmp:demo:user", "name"));
-SHOW(cache.hmget("sc-tmp:demo:user", {"name", "colour"}));
-SHOW(cache.hgetall("sc-tmp:demo:user"));
+sc::console::heading("A hash, one field at a time and several at once");
+SC_STEP(cache.hset("sc-tmp:demo:user", "name", "simply-cpp"));
+SC_STEP(cache.hset("sc-tmp:demo:user", "kind", "library"));
+SC_SHOW(cache.hget("sc-tmp:demo:user", "name"));
+SC_SHOW(cache.hmget("sc-tmp:demo:user", {"name", "colour"}));
+SC_SHOW(cache.hgetall("sc-tmp:demo:user"));
 
-heading("Removing them");
-SHOW(cache.erase("sc-tmp:demo:greeting")); // keys removed
-SHOW(cache.erase("sc-tmp:demo:user"));
-SHOW(cache.get("sc-tmp:demo:greeting"));
+sc::console::heading("Removing them");
+SC_SHOW(cache.erase("sc-tmp:demo:greeting")); // keys removed
+SC_SHOW(cache.erase("sc-tmp:demo:user"));
+SC_SHOW(cache.get("sc-tmp:demo:greeting"));
 ```
 <!-- /sc-example -->
 
