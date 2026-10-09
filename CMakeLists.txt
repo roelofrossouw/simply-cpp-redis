@@ -8,7 +8,7 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.11)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.21)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 if (SC_REDIS_HIREDIS_LIBRARY AND NOT EXISTS "${SC_REDIS_HIREDIS_LIBRARY}")
     message(STATUS "hiredis: the cached library location is gone, looking again")
@@ -40,4 +40,4 @@ endif ()
 
 add_sc_example(sc-redis-demo)
 
-package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.5)" libhiredis-dev)
+package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.21~)" libhiredis-dev)
