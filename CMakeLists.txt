@@ -37,6 +37,6 @@ if (SC_REDIS_BUILD_TESTS)
     add_subdirectory(tests sc-redis-test)
 endif ()
 
-add_sc_example(sc-redis-demo RUN_AS_TEST)
+add_sc_example(sc-redis-demo)
 
 package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 1.5.5)" libhiredis-dev)
