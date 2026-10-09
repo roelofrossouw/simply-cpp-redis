@@ -2,8 +2,6 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/SimplyCppFunctions.cmake")
 
-set_and_check(SC_TEST_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
-
 find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.5)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 
