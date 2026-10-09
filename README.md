@@ -42,8 +42,10 @@ plain `std::runtime_error`, so an outage can be told apart from a bad command.
 
 ## Demo
 
-`sc-redis-demo` is installed with the runtime package (`simply-cpp-redis`), so
-you can check a machine can reach Redis without installing the `-dev` package:
+`sc-redis-demo` stores and reads values (a string, then a hash one field, several
+fields and all fields at a time) and removes them again, showing each call with
+what it returned. It is installed with the runtime package (`simply-cpp-redis`),
+so it also checks a machine can reach Redis without the `-dev` package:
 
 ```bash
 sc-redis-demo                                                      # 127.0.0.1:6379
@@ -52,29 +54,34 @@ SC_REDIS_DEMO_SERVER="redis1.example.com;redis2.example.com:6380" sc-redis-demo
 
 `SC_REDIS_DEMO_SERVER` holds one server or several Cluster seed nodes,
 separated by `;` (quote the value in a shell). When it's unset or empty the
-demo uses `127.0.0.1:6379`; an invalid value is an error. The `example-sc-redis-demo` CTest uses the
-same variable, which build servers get from `/etc/simply-cpp/test.env`.
+demo uses `127.0.0.1:6379`; an invalid value is an error. It is a demonstration,
+not a test, so CTest doesn't run it.
 
 Its source is `examples/sc-redis-demo.cpp`; the code below is copied from it at
 configure time, so it always matches code that compiles:
 
 <!-- sc-example: examples/sc-redis-demo.cpp -->
 ```cpp
-sc::timer sw;
-sc::redis cache{seeds};
-std::cout << "Connected after " << sw << '\n';
+heading("Connecting");
+sc::redis cache{servers};
+std::cout << "  sc::redis cache{servers}\n      -> connected in " << sw << '\n';
 
-cache.set(key, "Hello World!");
-std::cout << key << " = " << cache.get(key).value() << '\n';
+heading("A string value");
+STEP(cache.set("sc-tmp:demo:greeting", "Hello World!"));
+SHOW(cache.get("sc-tmp:demo:greeting"));
+SHOW(cache.get("sc-tmp:demo:missing")); // std::optional: no such key
 
-cache.hset(hash, "name", "simply-cpp");
-cache.hset(hash, "kind", "demo");
-std::cout << hash << " name = " << cache.hget(hash, "name").value()
-        << ", kind = " << cache.hget(hash, "kind").value() << '\n';
+heading("A hash, one field at a time and several at once");
+STEP(cache.hset("sc-tmp:demo:user", "name", "simply-cpp"));
+STEP(cache.hset("sc-tmp:demo:user", "kind", "library"));
+SHOW(cache.hget("sc-tmp:demo:user", "name"));
+SHOW(cache.hmget("sc-tmp:demo:user", {"name", "colour"}));
+SHOW(cache.hgetall("sc-tmp:demo:user"));
 
-cache.erase(key);
-cache.erase(hash);
-std::cout << "Done after " << sw << '\n';
+heading("Removing them");
+SHOW(cache.erase("sc-tmp:demo:greeting")); // keys removed
+SHOW(cache.erase("sc-tmp:demo:user"));
+SHOW(cache.get("sc-tmp:demo:greeting"));
 ```
 <!-- /sc-example -->
 
