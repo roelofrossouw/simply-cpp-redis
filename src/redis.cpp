@@ -69,13 +69,17 @@ public:
         if (options_.connect_timeout.count() <= 0) throw std::invalid_argument("Redis connect timeout must be positive");
         if (options_.command_timeout.count() < 0) throw std::invalid_argument("Redis command timeout must not be negative");
         for (const auto &seed : seeds) validate_endpoint(seed);
-        initial_endpoint_ = seeds.front();
+        seeds_ = std::move(seeds);
 
+        // Commands go to the first seed that answers.
         std::string last_error;
-        for (const auto &seed : seeds) {
+        for (std::size_t i = 0; i < seeds_.size(); ++i) {
             try {
-                auto reply = execute_on(seed, {"PING"}, false);
-                if (reply->type == REDIS_REPLY_STATUS && reply_text(*reply) == "PONG") return;
+                auto reply = execute_on(seeds_[i], {"PING"}, false);
+                if (reply->type == REDIS_REPLY_STATUS && reply_text(*reply) == "PONG") {
+                    current_ = i;
+                    return;
+                }
                 last_error = "Redis seed did not return PONG";
             } catch (const std::runtime_error &error) {
                 last_error = error.what();
@@ -84,12 +88,42 @@ public:
         throw sc::redis_unavailable("Unable to connect to any Redis endpoint: " + last_error);
     }
 
+    // Runs command from the current seed. When that seed can't be connected to, the next seeds are
+    // tried in turn and the first that connects becomes the current one. A connection that breaks
+    // mid-command isn't moved to another seed (it may already have run): that is retried once on
+    // the same node, as execute_on() does, and otherwise reported.
     reply_ptr execute(const std::vector<std::string> &command) const {
-        ip_endpoint endpoint = initial_endpoint_;
+        for (std::size_t tried = 1;; ++tried) {
+            try {
+                return execute_from(seeds_[current_], command);
+            } catch (const seed_unreachable &error) {
+                if (tried >= seeds_.size()) throw sc::redis_unavailable(error.what());
+                current_ = (current_ + 1) % seeds_.size();
+            }
+        }
+    }
+
+private:
+    // The seed a command started from couldn't be connected to.
+    struct seed_unreachable : std::runtime_error {
+        using std::runtime_error::runtime_error;
+    };
+
+    // Runs command on seed, following Redis Cluster MOVED and ASK redirections.
+    reply_ptr execute_from(const ip_endpoint &seed, const std::vector<std::string> &command) const {
+        ip_endpoint endpoint = seed;
         bool asking = false;
 
         for (int attempt = 0; attempt < 5; ++attempt) {
-            auto reply = execute_on(endpoint, command, asking);
+            reply_ptr reply{nullptr, freeReplyObject};
+            try {
+                reply = execute_on(endpoint, command, asking);
+            } catch (const connection_lost &) {
+                throw;
+            } catch (const sc::redis_unavailable &error) {
+                if (attempt == 0) throw seed_unreachable(error.what()); // couldn't connect to the seed
+                throw;
+            }
             asking = false;
             if (reply->type != REDIS_REPLY_ERROR) return reply;
 
@@ -104,7 +138,6 @@ public:
         throw std::runtime_error("Redis Cluster redirected the command too many times");
     }
 
-private:
     static timeval to_timeval(const std::chrono::milliseconds duration) {
         return {static_cast<decltype(timeval::tv_sec)>(duration.count() / 1000),
                 static_cast<decltype(timeval::tv_usec)>(duration.count() % 1000 * 1000)};
@@ -128,7 +161,8 @@ private:
         std::unique_ptr<redisContext, decltype(&redisFree)> connection;
     };
 
-    ip_endpoint initial_endpoint_;
+    std::vector<ip_endpoint> seeds_;
+    mutable std::size_t current_ = 0; // the seed commands start from
     sc::redis_options options_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
 
