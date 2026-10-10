@@ -6,6 +6,8 @@ single server or one or more Cluster seed nodes to the constructor as an
 braced list. Entries without a port use 6379. It follows Redis Cluster `MOVED`
 and `ASK` redirections automatically.
 
+**Documentation:** the [simply-cpp wiki](https://github.com/roelofrossouw/simply-cpp/wiki) has a [Redis guide](https://github.com/roelofrossouw/simply-cpp/wiki/Redis) and the [sc-redis reference](https://github.com/roelofrossouw/simply-cpp/wiki/Reference-sc-redis), plus [getting started](https://github.com/roelofrossouw/simply-cpp/wiki/Getting-Started) for the whole suite.
+
 ```cpp
 sc::redis standalone_cache{"redis.example.com"};
 sc::redis cache{"redis1.example.com;redis2.example.com:6380"};
