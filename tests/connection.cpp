@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -189,6 +190,31 @@ int main() {
     CHECK_NOTHROW(client.set("second", "2"));
     CHECK_EQ(client.get("second").value_or(""), std::string{"2"});
     CHECK(server.connections() > before);
+
+    SECTION("Commands go to a seed that answered, not just the first");
+    {
+        // Nothing listens on port 1, so the first seed is down from the start.
+        sc::redis skips_dead_seed{"127.0.0.1:1;" + server.endpoint()};
+        CHECK_NOTHROW(skips_dead_seed.set("via", "second seed"));
+        CHECK_EQ(skips_dead_seed.get("via").value_or(""), std::string{"second seed"});
+    }
+
+    SECTION("When the seed in use goes away, the next one takes over");
+    {
+        auto first = std::make_unique<fake_redis>();
+        fake_redis second;
+        sc::redis client_of_two{first->endpoint() + ";" + second.endpoint()};
+        client_of_two.set("where", "first");
+        CHECK_EQ(first->connections(), 1);
+        CHECK_EQ(second.connections(), 0); // not used while the first answers
+
+        first.reset(); // the first server stops: its connection breaks and it can't be reached
+        CHECK_NOTHROW(client_of_two.set("where", "second"));
+        CHECK_EQ(client_of_two.get("where").value_or(""), std::string{"second"});
+        CHECK(second.connections() > 0);
+
+        CHECK_THROWS_AS((sc::redis{"127.0.0.1:1;127.0.0.1:2"}), sc::redis_unavailable);
+    }
 
     SECTION("AUTH with redis_options");
     {
