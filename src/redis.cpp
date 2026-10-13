@@ -422,3 +422,9 @@ std::optional<std::string> sc::redis::eval(const std::string &script, const std:
             throw std::runtime_error("Redis EVAL returned a table; return a single value from the script");
     }
 }
+
+bool sc::redis::expire(const std::string &key, const std::chrono::seconds ttl) const {
+    const auto reply = implementation_->execute({"EXPIRE", key, std::to_string(ttl.count())});
+    if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis EXPIRE returned an unexpected reply");
+    return reply->integer == 1;
+}

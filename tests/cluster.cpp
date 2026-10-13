@@ -5,6 +5,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -93,6 +94,19 @@ int main() {
         wrong_type = true;
     }
     CHECK(wrong_type);
+
+    SECTION("Keys that expire");
+    {
+        const auto expiring = prefix + ":expiring";
+        client.set(expiring, "soon gone");
+        CHECK(client.expire(expiring, std::chrono::seconds{1}));
+        CHECK_EQ(client.get(expiring), std::optional<std::string>{"soon gone"});
+        std::this_thread::sleep_for(std::chrono::milliseconds{1500});
+        CHECK(!client.get(expiring).has_value());
+        CHECK(!client.expire(prefix + ":no-such-key", std::chrono::seconds{10})); // nothing to expire
+        client.hset(script_key, "kept", "for now");
+        CHECK(client.expire(script_key, std::chrono::hours{1})); // a hash expires as a whole
+    }
 
     SECTION("Lua scripts with eval()");
     {
