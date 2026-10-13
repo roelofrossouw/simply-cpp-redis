@@ -79,6 +79,14 @@ namespace sc {
 
         std::size_t erase(const std::string &key) const;
 
+        // Runs a Lua script on the server (EVAL), atomically, with its keys (KEYS[1], ...) and
+        // arguments (ARGV[1], ...). In a Redis Cluster every key must be in one hash slot: one
+        // key, or keys sharing a {hash tag}; the script runs on the node that holds them. Returns
+        // what the script returns: a number or status as text, a string as itself, nil or false
+        // as nullopt. An error, or a table (array) result, throws std::runtime_error.
+        std::optional<std::string> eval(const std::string &script, const std::vector<std::string> &keys,
+                                        const std::vector<std::string> &arguments = {}) const;
+
     private:
         class implementation;
         std::unique_ptr<implementation> implementation_;

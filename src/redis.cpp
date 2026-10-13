@@ -403,3 +403,22 @@ std::size_t sc::redis::erase(const std::string &key) const {
     }
     return static_cast<std::size_t>(reply->integer);
 }
+
+std::optional<std::string> sc::redis::eval(const std::string &script, const std::vector<std::string> &keys,
+                                           const std::vector<std::string> &arguments) const {
+    std::vector<std::string> command{"EVAL", script, std::to_string(keys.size())};
+    command.insert(command.end(), keys.begin(), keys.end());
+    command.insert(command.end(), arguments.begin(), arguments.end());
+    const auto reply = implementation_->execute(command);
+    switch (reply->type) {
+        case REDIS_REPLY_NIL:
+            return std::nullopt;
+        case REDIS_REPLY_INTEGER:
+            return std::to_string(reply->integer);
+        case REDIS_REPLY_STRING:
+        case REDIS_REPLY_STATUS:
+            return reply_text(*reply);
+        default:
+            throw std::runtime_error("Redis EVAL returned a table; return a single value from the script");
+    }
+}

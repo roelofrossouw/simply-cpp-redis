@@ -36,13 +36,14 @@ int main() {
     const auto second_key = prefix + ":second";
     const auto hash_key = prefix + ":hash";
     const auto set_key = prefix + ":set";
+    const auto script_key = prefix + ":script";
 
     SECTION("Redis Cluster string and hash values");
     sc::redis client{std::vector<sc::ip_endpoint>{
         {"redis1.1web.co.za", 6379},
         {"redis2.1web.co.za", 6379},
     }};
-    key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key}};
+    key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key, script_key}};
 
     client.set(first_key, "first-value");
     client.set(second_key, "second-value");
@@ -92,6 +93,29 @@ int main() {
         wrong_type = true;
     }
     CHECK(wrong_type);
+
+    SECTION("Lua scripts with eval()");
+    {
+        // Writes the value only when its time is newer than the stored one, atomically.
+        const std::string newer_only = R"(
+            local stored = tonumber(redis.call('HGET', KEYS[1], 'time') or '0')
+            if tonumber(ARGV[1]) <= stored then return 0 end
+            redis.call('HSET', KEYS[1], 'time', ARGV[1], 'value', ARGV[2])
+            return 1)";
+        CHECK_EQ(client.eval(newer_only, {script_key}, {"200", "second"}), std::optional<std::string>{"1"});
+        CHECK_EQ(client.eval(newer_only, {script_key}, {"100", "first"}), std::optional<std::string>{"0"}); // older: kept
+        CHECK_EQ(client.hget(script_key, "value"), std::optional<std::string>{"second"});
+        CHECK_EQ(client.eval(newer_only, {script_key}, {"300", "third"}), std::optional<std::string>{"1"});
+        CHECK_EQ(client.hget(script_key, "value"), std::optional<std::string>{"third"});
+
+        CHECK_EQ(client.eval("return ARGV[1]", {}, {"text"}), std::optional<std::string>{"text"});
+        CHECK(!client.eval("return nil", {}).has_value());
+        CHECK(!client.eval("return false", {}).has_value());
+        CHECK_EQ(client.eval("return redis.status_reply('FINE')", {}), std::optional<std::string>{"FINE"});
+        CHECK_THROWS_AS((void) client.eval("return {1, 2}", {}), std::runtime_error);
+        CHECK_THROWS_AS((void) client.eval("this is not lua", {}), std::runtime_error);
+        CHECK_THROWS_AS((void) client.eval("return redis.error_reply('nope')", {}), std::runtime_error);
+    }
 
     TEST_SUMMARY();
 }
