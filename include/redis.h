@@ -79,6 +79,10 @@ namespace sc {
 
         std::size_t erase(const std::string &key) const;
 
+        // Makes key expire after ttl (EXPIRE; whole seconds). Returns false when there is no such
+        // key, so nothing was set to expire.
+        bool expire(const std::string &key, std::chrono::seconds ttl) const;
+
         // Runs a Lua script on the server (EVAL), atomically, with its keys (KEYS[1], ...) and
         // arguments (ARGV[1], ...). In a Redis Cluster every key must be in one hash slot: one
         // key, or keys sharing a {hash tag}; the script runs on the node that holds them. Returns
