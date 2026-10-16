@@ -2,7 +2,7 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/SimplyCppFunctions.cmake")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.5.5)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.7.0)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 
 include("${CMAKE_CURRENT_LIST_DIR}/sc-redisTargets.cmake")
