@@ -43,7 +43,7 @@ int main() {
     const auto hash_key = prefix + ":hash";
 
     SECTION("Authenticated Redis string and hash values");
-    sc::redis client{sc::redis_connection{"vms", 20006, 0, true, password}};
+    sc::redis client{"vms:20006", sc::redis_options{.password = password}};
     key_cleanup cleanup{client, {first_key, second_key, hash_key}};
 
     client.set(first_key, "first-value");

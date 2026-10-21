@@ -21,17 +21,14 @@ namespace {
         return reply.str ? std::string(reply.str, reply.len) : "unknown Redis error";
     }
 
-    std::string endpoint_key(const sc::ip_endpoint &endpoint) {
-        return endpoint.host + ':' + std::to_string(endpoint.port);
-    }
-
     void validate_endpoint(const sc::ip_endpoint &endpoint) {
         if (endpoint.host.empty() || endpoint.port <= 0 || endpoint.port > 65535) {
             throw std::invalid_argument("Redis endpoint must have a host and port from 1 to 65535");
         }
     }
 
-    void expect_ok(redisContext &connection, const std::vector<std::string> &command, const std::string_view operation) {
+    // A null reply means the connection failed; connection.errstr says why.
+    reply_ptr run_command(redisContext &connection, const std::vector<std::string> &command) {
         std::vector<const char *> arguments;
         std::vector<std::size_t> lengths;
         arguments.reserve(command.size());
@@ -40,14 +37,24 @@ namespace {
             arguments.push_back(argument.data());
             lengths.push_back(argument.size());
         }
+        return {static_cast<redisReply *>(redisCommandArgv(&connection, static_cast<int>(arguments.size()),
+                                                           arguments.data(), lengths.data())),
+                freeReplyObject};
+    }
 
-        reply_ptr reply{static_cast<redisReply *>(redisCommandArgv(
-                            &connection, static_cast<int>(arguments.size()), arguments.data(), lengths.data())),
-                        freeReplyObject};
+    void expect_ok(redisContext &connection, const std::vector<std::string> &command, const std::string_view operation) {
+        const auto reply = run_command(connection, command);
         if (!reply || reply->type != REDIS_REPLY_STATUS || reply_text(*reply) != "OK") {
             throw std::runtime_error("Redis " + std::string(operation) + " failed: " +
                                      (reply ? reply_text(*reply) : connection.errstr));
         }
+    }
+
+    std::size_t count_reply(const redisReply &reply, const std::string_view command) {
+        if (reply.type != REDIS_REPLY_INTEGER || reply.integer < 0) {
+            throw std::runtime_error("Redis " + std::string(command) + " returned an unexpected reply");
+        }
+        return static_cast<std::size_t>(reply.integer);
     }
 
     sc::ip_endpoint redirect_endpoint(const redisReply &reply) {
@@ -103,6 +110,15 @@ public:
         }
     }
 
+    // SADD or SREM: how many members were added or removed.
+    std::size_t change_members(const std::string &command, const std::string &key,
+                               const std::vector<std::string> &members) const {
+        if (members.empty()) return 0;
+        std::vector<std::string> arguments{command, key};
+        arguments.insert(arguments.end(), members.begin(), members.end());
+        return count_reply(*execute(arguments), command);
+    }
+
 private:
     // The seed a command started from couldn't be connected to.
     struct seed_unreachable : std::runtime_error {
@@ -148,11 +164,11 @@ private:
             connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port,
                                                      to_timeval(options.connect_timeout)));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
-            if (connection->err) throw sc::redis_unavailable("Unable to connect to Redis " + endpoint_key(endpoint) +
+            if (connection->err) throw sc::redis_unavailable("Unable to connect to Redis " + endpoint.to_string() +
                                                               ": " + connection->errstr);
             if (options.command_timeout.count() > 0 &&
                 redisSetTimeout(connection.get(), to_timeval(options.command_timeout)) != REDIS_OK) {
-                throw std::runtime_error("Unable to set the Redis command timeout for " + endpoint_key(endpoint));
+                throw std::runtime_error("Unable to set the Redis command timeout for " + endpoint.to_string());
             }
             if (!options.password.empty()) expect_ok(*connection, {"AUTH", options.password}, "AUTH");
             if (options.db != 0) expect_ok(*connection, {"SELECT", std::to_string(options.db)}, "SELECT");
@@ -168,7 +184,7 @@ private:
 
     // The connection to endpoint, made if there is none yet. fresh says whether it was just made.
     redisContext &connection_for(const ip_endpoint &endpoint, bool &fresh) const {
-        const auto key = endpoint_key(endpoint);
+        const auto key = endpoint.to_string();
         if (const auto existing = contexts_.find(key); existing != contexts_.end()) {
             fresh = false;
             return *existing->second->connection;
@@ -181,7 +197,7 @@ private:
 
     // A connection that failed (closed, reset, timed out) can't be used again; dropping it
     // makes the next command to that endpoint reconnect.
-    void drop_connection(const ip_endpoint &endpoint) const { contexts_.erase(endpoint_key(endpoint)); }
+    void drop_connection(const ip_endpoint &endpoint) const { contexts_.erase(endpoint.to_string()); }
 
     // Runs command on endpoint. When a connection that was already open fails (it went stale
     // while idle, or the server restarted), it is replaced and the command tried once more.
@@ -210,18 +226,7 @@ private:
             }
         }
 
-        std::vector<const char *> arguments;
-        std::vector<std::size_t> lengths;
-        arguments.reserve(command.size());
-        lengths.reserve(command.size());
-        for (const auto &argument : command) {
-            arguments.push_back(argument.data());
-            lengths.push_back(argument.size());
-        }
-
-        reply_ptr reply{static_cast<redisReply *>(redisCommandArgv(
-                            &connection, static_cast<int>(arguments.size()), arguments.data(), lengths.data())),
-                        freeReplyObject};
+        auto reply = run_command(connection, command);
         if (!reply) {
             const std::string error = connection.errstr;
             drop_connection(endpoint);
@@ -248,20 +253,6 @@ sc::redis::redis(ip_endpoints seeds, redis_options options)
     : implementation_(std::make_unique<implementation>(with_default_port(seeds), std::move(options))) {
 }
 
-namespace {
-    sc::redis_options options_from(const sc::redis_connection &connection) {
-        if (!connection.decode_responses) {
-            throw std::invalid_argument("sc::redis supports decoded string responses only");
-        }
-        return {connection.password, connection.db};
-    }
-}
-
-sc::redis::redis(redis_connection connection)
-    : implementation_(std::make_unique<implementation>(
-          std::vector<ip_endpoint>{{connection.host, connection.port}}, options_from(connection))) {
-}
-
 sc::redis::~redis() = default;
 
 void sc::redis::set(const std::string &key, const std::string &value) const {
@@ -271,11 +262,18 @@ void sc::redis::set(const std::string &key, const std::string &value) const {
     }
 }
 
+namespace {
+    std::optional<std::string> optional_string(const redisReply &reply, const std::string_view command) {
+        if (reply.type == REDIS_REPLY_NIL) return std::nullopt;
+        if (reply.type != REDIS_REPLY_STRING) {
+            throw std::runtime_error("Redis " + std::string(command) + " returned an unexpected reply");
+        }
+        return reply_text(reply);
+    }
+}
+
 std::optional<std::string> sc::redis::get(const std::string &key) const {
-    const auto reply = implementation_->execute({"GET", key});
-    if (reply->type == REDIS_REPLY_NIL) return std::nullopt;
-    if (reply->type != REDIS_REPLY_STRING) throw std::runtime_error("Redis GET returned an unexpected reply");
-    return reply_text(*reply);
+    return optional_string(*implementation_->execute({"GET", key}), "GET");
 }
 
 void sc::redis::hset(const std::string &key, const std::string &field, const std::string &value) const {
@@ -284,10 +282,7 @@ void sc::redis::hset(const std::string &key, const std::string &field, const std
 }
 
 std::optional<std::string> sc::redis::hget(const std::string &key, const std::string &field) const {
-    const auto reply = implementation_->execute({"HGET", key, field});
-    if (reply->type == REDIS_REPLY_NIL) return std::nullopt;
-    if (reply->type != REDIS_REPLY_STRING) throw std::runtime_error("Redis HGET returned an unexpected reply");
-    return reply_text(*reply);
+    return optional_string(*implementation_->execute({"HGET", key, field}), "HGET");
 }
 
 std::vector<std::optional<std::string>> sc::redis::hmget(const std::string &key,
@@ -330,15 +325,6 @@ std::map<std::string, std::string> sc::redis::hgetall(const std::string &key) co
     return fields;
 }
 
-namespace {
-    std::size_t count_reply(const redisReply &reply, const std::string_view command) {
-        if (reply.type != REDIS_REPLY_INTEGER || reply.integer < 0) {
-            throw std::runtime_error("Redis " + std::string(command) + " returned an unexpected reply");
-        }
-        return static_cast<std::size_t>(reply.integer);
-    }
-}
-
 std::size_t sc::redis::sadd(const std::string &key, const std::string &member) const {
     return sadd(key, std::vector{member});
 }
@@ -348,10 +334,7 @@ std::size_t sc::redis::sadd(const std::string &key, const std::initializer_list<
 }
 
 std::size_t sc::redis::sadd(const std::string &key, const std::vector<std::string> &members) const {
-    if (members.empty()) return 0;
-    std::vector<std::string> command{"SADD", key};
-    command.insert(command.end(), members.begin(), members.end());
-    return count_reply(*implementation_->execute(command), "SADD");
+    return implementation_->change_members("SADD", key, members);
 }
 
 std::size_t sc::redis::srem(const std::string &key, const std::string &member) const {
@@ -363,10 +346,7 @@ std::size_t sc::redis::srem(const std::string &key, const std::initializer_list<
 }
 
 std::size_t sc::redis::srem(const std::string &key, const std::vector<std::string> &members) const {
-    if (members.empty()) return 0;
-    std::vector<std::string> command{"SREM", key};
-    command.insert(command.end(), members.begin(), members.end());
-    return count_reply(*implementation_->execute(command), "SREM");
+    return implementation_->change_members("SREM", key, members);
 }
 
 std::size_t sc::redis::scard(const std::string &key) const {
@@ -397,11 +377,7 @@ bool sc::redis::sismember(const std::string &key, const std::string &member) con
 }
 
 std::size_t sc::redis::erase(const std::string &key) const {
-    const auto reply = implementation_->execute({"DEL", key});
-    if (reply->type != REDIS_REPLY_INTEGER || reply->integer < 0) {
-        throw std::runtime_error("Redis DEL returned an unexpected reply");
-    }
-    return static_cast<std::size_t>(reply->integer);
+    return count_reply(*implementation_->execute({"DEL", key}), "DEL");
 }
 
 std::optional<std::string> sc::redis::eval(const std::string &script, const std::vector<std::string> &keys,
