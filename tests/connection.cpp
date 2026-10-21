@@ -25,8 +25,8 @@
 using namespace std::chrono_literals;
 
 namespace {
-    // Speaks just enough RESP for PING, AUTH, SET and GET, and can drop every connection or stop
-    // answering.
+    // Speaks just enough RESP for PING, AUTH, SET (also SET key value NX EX seconds, which never
+    // expires here) and GET, and can drop every connection or stop answering.
     class fake_redis {
     public:
         explicit fake_redis(std::string password = {}) : password_(std::move(password)) {
@@ -125,6 +125,9 @@ namespace {
                 data_[command[1]] = command[2];
                 return "+OK\r\n";
             }
+            if (command[0] == "SET" && command.size() == 6 && command[3] == "NX" && command[4] == "EX") {
+                return data_.emplace(command[1], command[2]).second ? "+OK\r\n" : "$-1\r\n";
+            }
             if (command[0] == "GET" && command.size() == 2) {
                 const auto found = data_.find(command[1]);
                 if (found == data_.end()) return "$-1\r\n";
@@ -170,6 +173,14 @@ int main() {
     client.set("first", "1");
     CHECK_EQ(client.get("first").value_or(""), std::string{"1"});
     CHECK(!client.get("missing").has_value());
+
+    SECTION("Set if absent");
+    CHECK(client.set_if_absent("once", "a", 60s));
+    CHECK(!client.set_if_absent("once", "b", 60s));
+    CHECK_EQ(client.get("once").value_or(""), std::string{"a"}); // the second call changed nothing
+    CHECK(!client.set_if_absent("first", "x", 60s));              // made by a plain set
+    CHECK_THROWS_AS((void) client.set_if_absent("never", "x", 0s), std::invalid_argument);
+    CHECK(!client.get("never").has_value());
 
     SECTION("An error reply is a plain runtime_error, not redis_unavailable");
     {
