@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -41,10 +42,11 @@ int main() {
     const auto first_key = prefix + ":first";
     const auto second_key = prefix + ":second";
     const auto hash_key = prefix + ":hash";
+    const auto once_key = prefix + ":once";
 
     SECTION("Authenticated Redis string and hash values");
     sc::redis client{"vms:20006", sc::redis_options{.password = password}};
-    key_cleanup cleanup{client, {first_key, second_key, hash_key}};
+    key_cleanup cleanup{client, {first_key, second_key, hash_key, once_key}};
 
     client.set(first_key, "first-value");
     client.set(second_key, "second-value");
@@ -55,6 +57,17 @@ int main() {
     client.hset(hash_key, "kind", "integration-test");
     CHECK_EQ(client.hget(hash_key, "name"), std::optional<std::string>{"simply-cpp"});
     CHECK_EQ(client.hget(hash_key, "kind"), std::optional<std::string>{"integration-test"});
+
+    SECTION("Set if absent, with an expiry");
+    {
+        CHECK(client.set_if_absent(once_key, "first", std::chrono::seconds{1}));
+        CHECK(!client.set_if_absent(once_key, "second", std::chrono::seconds{1}));
+        CHECK_EQ(client.get(once_key), std::optional<std::string>{"first"});
+        std::this_thread::sleep_for(std::chrono::milliseconds{1500});
+        CHECK(!client.get(once_key).has_value()); // expired
+        CHECK(client.set_if_absent(once_key, "again", std::chrono::seconds{60})); // absent again
+        CHECK_THROWS_AS((void) client.set_if_absent(once_key, "x", std::chrono::seconds{0}), std::invalid_argument);
+    }
 
     TEST_SUMMARY();
 }

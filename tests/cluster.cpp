@@ -36,6 +36,7 @@ int main() {
     const auto first_key = prefix + ":first";
     const auto second_key = prefix + ":second";
     const auto hash_key = prefix + ":hash";
+    const auto once_key = prefix + ":once";
     const auto set_key = prefix + ":set";
     const auto script_key = prefix + ":script";
 
@@ -44,7 +45,7 @@ int main() {
         {"redis1.1web.co.za", 6379},
         {"redis2.1web.co.za", 6379},
     }};
-    key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key, script_key}};
+    key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key, script_key, once_key}};
 
     client.set(first_key, "first-value");
     client.set(second_key, "second-value");
@@ -129,6 +130,17 @@ int main() {
         CHECK_THROWS_AS((void) client.eval("return {1, 2}", {}), std::runtime_error);
         CHECK_THROWS_AS((void) client.eval("this is not lua", {}), std::runtime_error);
         CHECK_THROWS_AS((void) client.eval("return redis.error_reply('nope')", {}), std::runtime_error);
+    }
+
+    SECTION("Set if absent, with an expiry");
+    {
+        CHECK(client.set_if_absent(once_key, "first", std::chrono::seconds{1}));
+        CHECK(!client.set_if_absent(once_key, "second", std::chrono::seconds{1}));
+        CHECK_EQ(client.get(once_key), std::optional<std::string>{"first"});
+        std::this_thread::sleep_for(std::chrono::milliseconds{1500});
+        CHECK(!client.get(once_key).has_value()); // expired
+        CHECK(client.set_if_absent(once_key, "again", std::chrono::seconds{60})); // absent again
+        CHECK_THROWS_AS((void) client.set_if_absent(once_key, "x", std::chrono::seconds{0}), std::invalid_argument);
     }
 
     TEST_SUMMARY();

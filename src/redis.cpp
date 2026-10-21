@@ -258,6 +258,17 @@ void sc::redis::set(const std::string &key, const std::string &value) const {
     }
 }
 
+bool sc::redis::set_if_absent(const std::string &key, const std::string &value,
+                              const std::chrono::seconds ttl) const {
+    if (ttl < std::chrono::seconds{1}) throw std::invalid_argument("Redis SET NX expiry must be at least 1 second");
+    const auto reply = implementation_->execute({"SET", key, value, "NX", "EX", std::to_string(ttl.count())});
+    if (reply->type == REDIS_REPLY_NIL) return false;
+    if (reply->type != REDIS_REPLY_STATUS || reply_text(*reply) != "OK") {
+        throw std::runtime_error("Redis SET NX returned an unexpected reply");
+    }
+    return true;
+}
+
 namespace {
     std::optional<std::string> optional_string(const redisReply &reply, const std::string_view command) {
         if (reply.type == REDIS_REPLY_NIL) return std::nullopt;

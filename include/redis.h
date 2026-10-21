@@ -45,6 +45,12 @@ namespace sc {
         void set(const std::string &key, const std::string &value) const;
         [[nodiscard]] std::optional<std::string> get(const std::string &key) const;
 
+        // Sets key to value, expiring after ttl (whole seconds), only when key doesn't exist yet
+        // (SET NX EX), atomically: of several clients racing for the key, exactly one gets true.
+        // Returns false, changing nothing, when the key already exists. Throws
+        // std::invalid_argument for a ttl below 1 s.
+        bool set_if_absent(const std::string &key, const std::string &value, std::chrono::seconds ttl) const;
+
         void hset(const std::string &key, const std::string &field, const std::string &value) const;
         [[nodiscard]] std::optional<std::string> hget(const std::string &key, const std::string &field) const;
 

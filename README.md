@@ -16,6 +16,7 @@ sc::redis authenticated_cache(
     {"redis.example.com", 6380, 0, true, "configured-elsewhere"});
 cache.set("key", "value");
 const auto value = cache.get("key");
+const bool first = cache.set_if_absent("seen:delivery-id", "1", std::chrono::hours{1}); // SET NX EX: false when already there
 
 cache.hset("key", "field", "value");
 const auto field = cache.hget("key", "field");
