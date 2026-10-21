@@ -13,14 +13,6 @@
 #include <vector>
 
 namespace sc {
-    struct redis_connection {
-        std::string host;
-        int port = 6379;
-        int db = 0;
-        bool decode_responses = true;
-        std::string password;
-    };
-
     // Thrown when Redis can't be reached: no connection could be made, or one broke or timed out
     // (after the one transparent retry). Redis answering with an error (WRONGTYPE, ...) is a
     // plain std::runtime_error instead, so callers can tell an outage from a bad command.
@@ -44,7 +36,6 @@ namespace sc {
         // A connection that broke since its last use is replaced once, transparently.
         explicit redis(ip_endpoints seeds);
         redis(ip_endpoints seeds, redis_options options);
-        explicit redis(redis_connection connection);
         ~redis();
 
         redis(const redis &) = delete;
