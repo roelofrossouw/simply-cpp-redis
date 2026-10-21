@@ -110,7 +110,6 @@ public:
         }
     }
 
-    // SADD or SREM: how many members were added or removed.
     std::size_t change_members(const std::string &command, const std::string &key,
                                const std::vector<std::string> &members) const {
         if (members.empty()) return 0;
@@ -120,7 +119,6 @@ public:
     }
 
 private:
-    // The seed a command started from couldn't be connected to.
     struct seed_unreachable : std::runtime_error {
         using std::runtime_error::runtime_error;
     };
@@ -195,8 +193,6 @@ private:
         return *contexts_.emplace(key, std::move(made)).first->second->connection;
     }
 
-    // A connection that failed (closed, reset, timed out) can't be used again; dropping it
-    // makes the next command to that endpoint reconnect.
     void drop_connection(const ip_endpoint &endpoint) const { contexts_.erase(endpoint.to_string()); }
 
     // Runs command on endpoint. When a connection that was already open fails (it went stale

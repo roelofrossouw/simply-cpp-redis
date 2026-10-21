@@ -34,6 +34,7 @@ namespace sc {
         // std::vector<ip_endpoint> or a braced list. Entries without a port use 6379.
         // Connects (and checks with PING) straight away, throwing if no seed answers.
         // A connection that broke since its last use is replaced once, transparently.
+        // Not thread-safe: use one sc::redis per thread, or lock around it.
         explicit redis(ip_endpoints seeds);
         redis(ip_endpoints seeds, redis_options options);
         ~redis();
