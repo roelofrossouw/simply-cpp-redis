@@ -180,9 +180,12 @@ private:
         const auto &seed = seeds_[current_];
         const auto reply = execute_on(seed, {"CLUSTER", "NODES"}, false);
         if (reply->type == REDIS_REPLY_ERROR) return {seed}; // "cluster support disabled"
-        if (reply->type != REDIS_REPLY_STRING && reply->type != REDIS_REPLY_VERB) {
-            throw std::runtime_error("Redis CLUSTER NODES returned an unexpected reply");
-        }
+        // RESP2 answers with a bulk string; RESP3 with verbatim text (hiredis 1.0 and later).
+        bool text_reply = reply->type == REDIS_REPLY_STRING;
+#ifdef REDIS_REPLY_VERB
+        text_reply = text_reply || reply->type == REDIS_REPLY_VERB;
+#endif
+        if (!text_reply) throw std::runtime_error("Redis CLUSTER NODES returned an unexpected reply");
         std::vector<ip_endpoint> nodes;
         const auto text = reply_text(*reply);
         std::size_t start = 0;
