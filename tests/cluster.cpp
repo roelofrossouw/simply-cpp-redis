@@ -143,5 +143,19 @@ int main() {
         CHECK_THROWS_AS((void) client.set_if_absent(once_key, "x", std::chrono::seconds{0}), std::invalid_argument);
     }
 
+    SECTION("Keys matching a pattern, over every master");
+    {
+        // Keys hashing to different slots, so to different masters.
+        std::vector<std::string> scanned;
+        for (int i = 0; i < 20; ++i) scanned.push_back(prefix + ":scan:" + std::to_string(i));
+        key_cleanup scan_cleanup{client, scanned};
+        for (const auto &key: scanned) client.set(key, "x");
+        auto found = client.keys(prefix + ":scan:*", 10000); // the cluster holds ~1.8 million keys
+        CHECK_EQ(std::set<std::string>(found.begin(), found.end()), std::set<std::string>(scanned.begin(), scanned.end()));
+        CHECK_EQ(found.size(), scanned.size());
+        CHECK(client.keys(prefix + ":no-such-*", 10000).empty());
+        CHECK_THROWS_AS((void) client.keys(prefix + ":scan:*", 0), std::invalid_argument);
+    }
+
     TEST_SUMMARY();
 }

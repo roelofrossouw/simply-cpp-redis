@@ -2,6 +2,7 @@
 
 #include <hiredis/hiredis.h>
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -118,6 +119,27 @@ public:
         return count_reply(*execute(arguments), command);
     }
 
+    // Every key matching pattern: SCAN on each master of a Redis Cluster (CLUSTER NODES), or on
+    // the current seed when the server isn't a cluster.
+    std::vector<std::string> scan(const std::string &pattern, const std::size_t count) const {
+        std::vector<std::string> found;
+        for (const auto &node: masters()) {
+            std::string cursor = "0";
+            do {
+                const auto reply = execute_on(node, {"SCAN", cursor, "MATCH", pattern, "COUNT", std::to_string(count)}, false);
+                if (reply->type == REDIS_REPLY_ERROR) throw std::runtime_error("Redis SCAN failed: " + reply_text(*reply));
+                if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2 || reply->element[0]->type != REDIS_REPLY_STRING ||
+                    reply->element[1]->type != REDIS_REPLY_ARRAY) {
+                    throw std::runtime_error("Redis SCAN returned an unexpected reply");
+                }
+                cursor = reply_text(*reply->element[0]);
+                const auto &keys = *reply->element[1];
+                for (std::size_t i = 0; i < keys.elements; ++i) found.push_back(reply_text(*keys.element[i]));
+            } while (cursor != "0");
+        }
+        return found;
+    }
+
 private:
     struct seed_unreachable : std::runtime_error {
         using std::runtime_error::runtime_error;
@@ -150,6 +172,44 @@ private:
             throw std::runtime_error("Redis command failed: " + message);
         }
         throw std::runtime_error("Redis Cluster redirected the command too many times");
+    }
+
+    // The masters of a Redis Cluster, from CLUSTER NODES ("<id> <ip:port@cport> <flags> ..."), or
+    // just the current seed when the server isn't one.
+    std::vector<ip_endpoint> masters() const {
+        const auto &seed = seeds_[current_];
+        const auto reply = execute_on(seed, {"CLUSTER", "NODES"}, false);
+        if (reply->type == REDIS_REPLY_ERROR) return {seed}; // "cluster support disabled"
+        if (reply->type != REDIS_REPLY_STRING && reply->type != REDIS_REPLY_VERB) {
+            throw std::runtime_error("Redis CLUSTER NODES returned an unexpected reply");
+        }
+        std::vector<ip_endpoint> nodes;
+        const auto text = reply_text(*reply);
+        std::size_t start = 0;
+        while (start < text.size()) {
+            auto end = text.find('\n', start);
+            if (end == std::string::npos) end = text.size();
+            std::vector<std::string_view> fields;
+            for (std::size_t at = start; at < end;) {
+                const auto space = std::min(text.find(' ', at), end);
+                fields.emplace_back(std::string_view{text}.substr(at, space - at));
+                at = space + 1;
+            }
+            start = end + 1;
+            if (fields.size() < 3) continue;
+            const auto flags = fields[2];
+            if (flags.find("master") == std::string_view::npos || flags.find("fail") != std::string_view::npos ||
+                flags.find("noaddr") != std::string_view::npos) {
+                continue;
+            }
+            auto address = fields[1].substr(0, fields[1].find('@'));
+            if (const auto comma = address.find(','); comma != std::string_view::npos) address = address.substr(0, comma); // ,hostname
+            auto node = ip_endpoint::parse(address);
+            if (node.host.empty()) node.host = seed.host; // a node that doesn't know its own address yet
+            nodes.push_back(std::move(node));
+        }
+        if (nodes.empty()) throw std::runtime_error("Redis CLUSTER NODES lists no master");
+        return nodes;
     }
 
     static timeval to_timeval(const std::chrono::milliseconds duration) {
@@ -385,6 +445,11 @@ bool sc::redis::sismember(const std::string &key, const std::string &member) con
 
 std::size_t sc::redis::erase(const std::string &key) const {
     return count_reply(*implementation_->execute({"DEL", key}), "DEL");
+}
+
+std::vector<std::string> sc::redis::keys(const std::string &pattern, const std::size_t count) const {
+    if (count == 0) throw std::invalid_argument("Redis SCAN count must be at least 1");
+    return implementation_->scan(pattern, count);
 }
 
 std::optional<std::string> sc::redis::eval(const std::string &script, const std::vector<std::string> &keys,
