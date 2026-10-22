@@ -28,7 +28,13 @@ cache.srem("tags", "redis");                  // members removed: 1
 const auto count = cache.scard("tags");       // std::size_t
 const auto tags = cache.smembers("tags");     // std::set<std::string>
 const bool tagged = cache.sismember("tags", "cpp");
+
+const auto devices = cache.keys("drtp:*");    // std::vector<std::string>, by SCAN
 ```
+
+`keys()` walks the keyspace with SCAN (on every master of a Cluster), so it doesn't
+hold the server up as KEYS would; its second argument is how many keys a step looks
+at (1000 by default; raise it for a big keyspace, where each step is a round trip).
 
 `redis_options` sets a password, database and timeouts for every node the client
 connects to, including Cluster seeds given as a list:

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -67,6 +68,15 @@ int main() {
         CHECK(!client.get(once_key).has_value()); // expired
         CHECK(client.set_if_absent(once_key, "again", std::chrono::seconds{60})); // absent again
         CHECK_THROWS_AS((void) client.set_if_absent(once_key, "x", std::chrono::seconds{0}), std::invalid_argument);
+    }
+
+    SECTION("Keys matching a pattern, on a server that isn't a cluster");
+    {
+        const std::vector<std::string> scanned{prefix + ":scan:a", prefix + ":scan:b", prefix + ":scan:c"};
+        key_cleanup scan_cleanup{client, scanned};
+        for (const auto &key: scanned) client.set(key, "x");
+        const auto found = client.keys(prefix + ":scan:*", 5000);
+        CHECK_EQ(std::set<std::string>(found.begin(), found.end()), std::set<std::string>(scanned.begin(), scanned.end()));
     }
 
     TEST_SUMMARY();

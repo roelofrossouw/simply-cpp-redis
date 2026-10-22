@@ -77,6 +77,12 @@ namespace sc {
 
         std::size_t erase(const std::string &key) const;
 
+        // The keys matching pattern, a glob such as "drtp:*" (SCAN ... MATCH), in no particular
+        // order: of the one server, or of every master of a Redis Cluster. It walks the keyspace
+        // count keys a step, so the server isn't held up as with KEYS; a key added or removed
+        // during the walk may or may not be in the result.
+        [[nodiscard]] std::vector<std::string> keys(const std::string &pattern, std::size_t count = 1000) const;
+
         // Makes key expire after ttl (EXPIRE; whole seconds). Returns false when there is no such
         // key, so nothing was set to expire.
         bool expire(const std::string &key, std::chrono::seconds ttl) const;
