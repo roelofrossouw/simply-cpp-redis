@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <map>
 #include <ip_endpoints.h>
@@ -10,6 +11,8 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace sc {
@@ -27,6 +30,36 @@ namespace sc {
         std::chrono::milliseconds connect_timeout{2000};
         std::chrono::milliseconds command_timeout{0};        // 0: wait for the reply however long
     };
+
+    // One node as CLUSTER NODES gives it ("<id> <ip:port@bus> <flags> <master> <ping> <pong> <epoch>
+    // <link> <slots>...").
+    struct redis_cluster_node {
+        std::string id;
+        ip_endpoint address;            // its client address (host empty when it doesn't know it yet)
+        int bus_port = 0;               // the cluster bus port, 0 when not given
+        std::vector<std::string> flags; // "myself", "master", "slave", "fail?", "fail", "handshake", "noaddr", ...
+        std::string master_id;          // a replica's master; empty for a master
+        std::int64_t ping_sent = 0, pong_received = 0; // milliseconds since 1970 (0: none pending)
+        std::int64_t config_epoch = 0;
+        std::string link;               // "connected" or "disconnected"
+        std::vector<std::pair<int, int>> slots; // the slot ranges it serves (first, last), a single slot as (n, n)
+        std::vector<std::string> migrating;     // slots being moved ("[1234->-<id>]"), as given
+
+        [[nodiscard]] bool has(std::string_view flag) const;
+        [[nodiscard]] bool master() const { return has("master"); }
+        [[nodiscard]] bool replica() const { return has("slave"); }
+        // Marked failing: "fail" (agreed) or "fail?" (this node's view).
+        [[nodiscard]] bool failing() const { return has("fail") || has("fail?"); }
+        // The ranges as Redis writes them: "0-5460", "5461".
+        [[nodiscard]] std::vector<std::string> slot_ranges() const;
+    };
+
+    // CLUSTER NODES' text as nodes. Throws std::runtime_error for a line that isn't one.
+    [[nodiscard]] std::vector<redis_cluster_node> parse_cluster_nodes(std::string_view text);
+
+    // INFO's (or CLUSTER INFO's) text as its fields: "used_memory:1024" lines, the "# Memory"
+    // headings and empty lines left out.
+    [[nodiscard]] std::map<std::string, std::string> parse_info(std::string_view text);
 
     class redis {
     public:
@@ -94,6 +127,25 @@ namespace sc {
         // as nullopt. An error, or a table (array) result, throws std::runtime_error.
         std::optional<std::string> eval(const std::string &script, const std::vector<std::string> &keys,
                                         const std::vector<std::string> &arguments = {}) const;
+
+        // Redis Cluster's state, as the current seed sees it.
+        // The nodes (CLUSTER NODES), in its order. Throws std::runtime_error when the server isn't a
+        // cluster.
+        [[nodiscard]] std::vector<redis_cluster_node> cluster_nodes() const;
+        // CLUSTER INFO's fields: cluster_state ("ok", "fail"), cluster_current_epoch,
+        // cluster_slots_assigned, cluster_known_nodes, ...
+        [[nodiscard]] std::map<std::string, std::string> cluster_info() const;
+
+        // INFO of one node (a cluster's, or the server), all sections or one ("memory",
+        // "replication", "keyspace", "server"). It needn't be a seed: it's connected to as the
+        // seeds are, with the same options.
+        [[nodiscard]] std::map<std::string, std::string> info(const ip_endpoint &node, const std::string &section = {}) const;
+
+        // CLUSTER FAILOVER on a replica: it and its master swap roles, with no writes lost (the
+        // master stops taking them until the replica has caught up). Waits until the node reports
+        // itself master (INFO replication role:master), throwing std::runtime_error when Redis
+        // refuses or it hasn't within limit.
+        void cluster_failover(const ip_endpoint &replica, std::chrono::seconds limit = std::chrono::seconds{30}) const;
 
     private:
         class implementation;

@@ -3,6 +3,8 @@
 #include <hiredis/hiredis.h>
 
 #include <algorithm>
+#include <charconv>
+#include <thread>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -20,6 +22,16 @@ namespace {
 
     std::string reply_text(const redisReply &reply) {
         return reply.str ? std::string(reply.str, reply.len) : "unknown Redis error";
+    }
+
+    std::string text_of(const redisReply &reply, const std::string &command) {
+        bool text = reply.type == REDIS_REPLY_STRING || reply.type == REDIS_REPLY_STATUS;
+#ifdef REDIS_REPLY_VERB
+        text = text || reply.type == REDIS_REPLY_VERB;
+#endif
+        if (reply.type == REDIS_REPLY_ERROR) throw std::runtime_error("Redis " + command + " failed: " + reply_text(reply));
+        if (!text) throw std::runtime_error("Redis " + command + " returned an unexpected reply");
+        return reply_text(reply);
     }
 
     void validate_endpoint(const sc::ip_endpoint &endpoint) {
@@ -109,6 +121,15 @@ public:
                 current_ = (current_ + 1) % seeds_.size();
             }
         }
+    }
+
+    // A command's text reply (a bulk string, RESP3 verbatim text or a status), from the current seed
+    // or from node; Redis's error as std::runtime_error.
+    std::string text_from_seed(const std::vector<std::string> &command) const { return text_of(*execute(command), command.front()); }
+
+    std::string text_on(const ip_endpoint &node, const std::vector<std::string> &command) const {
+        validate_endpoint(node);
+        return text_of(*execute_on(node, command, false), command.front());
     }
 
     std::size_t change_members(const std::string &command, const std::string &key,
@@ -478,4 +499,127 @@ bool sc::redis::expire(const std::string &key, const std::chrono::seconds ttl) c
     const auto reply = implementation_->execute({"EXPIRE", key, std::to_string(ttl.count())});
     if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis EXPIRE returned an unexpected reply");
     return reply->integer == 1;
+}
+
+bool sc::redis_cluster_node::has(const std::string_view flag) const {
+    return std::ranges::find(flags, flag) != flags.end();
+}
+
+std::vector<std::string> sc::redis_cluster_node::slot_ranges() const {
+    std::vector<std::string> out;
+    for (const auto &[first, last]: slots) out.push_back(first == last ? std::to_string(first) : std::to_string(first) + "-" + std::to_string(last));
+    return out;
+}
+
+namespace {
+    std::vector<std::string_view> fields_of(const std::string_view line) {
+        std::vector<std::string_view> out;
+        std::size_t at = 0;
+        while (at < line.size()) {
+            const auto space = std::min(line.find(' ', at), line.size());
+            if (space > at) out.push_back(line.substr(at, space - at));
+            at = space + 1;
+        }
+        return out;
+    }
+
+    std::int64_t number_of(const std::string_view text, const std::string_view what, const std::string_view line) {
+        std::int64_t value = 0;
+        const auto [end, problem] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (problem != std::errc{} || end != text.data() + text.size())
+            throw std::runtime_error("Redis CLUSTER NODES: " + std::string{what} + " isn't a number in \"" + std::string{line} + "\"");
+        return value;
+    }
+}
+
+std::vector<sc::redis_cluster_node> sc::parse_cluster_nodes(const std::string_view text) {
+    std::vector<redis_cluster_node> nodes;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        auto end = text.find('\n', start);
+        if (end == std::string_view::npos) end = text.size();
+        auto line = text.substr(start, end - start);
+        start = end + 1;
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        if (line.empty()) continue;
+        const auto fields = fields_of(line);
+        if (fields.size() < 8) throw std::runtime_error("Redis CLUSTER NODES: \"" + std::string{line} + "\" has too few fields");
+        redis_cluster_node node;
+        node.id = fields[0];
+        // ip:port@cport[,hostname]
+        auto address = fields[1];
+        if (const auto comma = address.find(','); comma != std::string_view::npos) address = address.substr(0, comma);
+        if (const auto at = address.find('@'); at != std::string_view::npos) {
+            node.bus_port = static_cast<int>(number_of(address.substr(at + 1), "the bus port", line));
+            address = address.substr(0, at);
+        }
+        if (!address.empty() && address != ":0") node.address = ip_endpoint::parse(address);
+        for (std::size_t from = 0; from <= fields[2].size();) {
+            const auto comma = std::min(fields[2].find(',', from), fields[2].size());
+            if (comma > from) node.flags.emplace_back(fields[2].substr(from, comma - from));
+            from = comma + 1;
+        }
+        if (fields[3] != "-") node.master_id = fields[3];
+        node.ping_sent = number_of(fields[4], "ping-sent", line);
+        node.pong_received = number_of(fields[5], "pong-recv", line);
+        node.config_epoch = number_of(fields[6], "config-epoch", line);
+        node.link = fields[7];
+        for (std::size_t i = 8; i < fields.size(); ++i) {
+            const auto slot = fields[i];
+            if (slot.starts_with('[')) {
+                node.migrating.emplace_back(slot);
+                continue;
+            }
+            const auto dash = slot.find('-');
+            const auto first = static_cast<int>(number_of(slot.substr(0, dash), "a slot", line));
+            const auto last = dash == std::string_view::npos ? first : static_cast<int>(number_of(slot.substr(dash + 1), "a slot", line));
+            node.slots.emplace_back(first, last);
+        }
+        nodes.push_back(std::move(node));
+    }
+    return nodes;
+}
+
+std::map<std::string, std::string> sc::parse_info(const std::string_view text) {
+    std::map<std::string, std::string> out;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        auto end = text.find('\n', start);
+        if (end == std::string_view::npos) end = text.size();
+        auto line = text.substr(start, end - start);
+        start = end + 1;
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        if (line.empty() || line.front() == '#') continue;
+        const auto colon = line.find(':');
+        if (colon == std::string_view::npos) continue;
+        out.emplace(std::string{line.substr(0, colon)}, std::string{line.substr(colon + 1)});
+    }
+    return out;
+}
+
+std::vector<sc::redis_cluster_node> sc::redis::cluster_nodes() const {
+    return parse_cluster_nodes(implementation_->text_from_seed({"CLUSTER", "NODES"}));
+}
+
+std::map<std::string, std::string> sc::redis::cluster_info() const {
+    return parse_info(implementation_->text_from_seed({"CLUSTER", "INFO"}));
+}
+
+std::map<std::string, std::string> sc::redis::info(const ip_endpoint &node, const std::string &section) const {
+    std::vector<std::string> command{"INFO"};
+    if (!section.empty()) command.push_back(section);
+    return parse_info(implementation_->text_on(node, command));
+}
+
+void sc::redis::cluster_failover(const ip_endpoint &replica, const std::chrono::seconds limit) const {
+    const auto answer = implementation_->text_on(replica, {"CLUSTER", "FAILOVER"});
+    if (answer != "OK") throw std::runtime_error("Redis CLUSTER FAILOVER on " + replica.to_string() + " answered " + answer);
+    const auto until = std::chrono::steady_clock::now() + limit;
+    for (;;) {
+        const auto replication = info(replica, "replication");
+        if (const auto role = replication.find("role"); role != replication.end() && role->second == "master") return;
+        if (std::chrono::steady_clock::now() >= until)
+            throw std::runtime_error("Redis " + replica.to_string() + " isn't master " + std::to_string(limit.count()) + " s after CLUSTER FAILOVER");
+        std::this_thread::sleep_for(std::chrono::milliseconds{250});
+    }
 }

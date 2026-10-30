@@ -55,6 +55,28 @@ replaces it and runs again once, transparently. When Redis can't be reached
 `sc::redis_unavailable`; Redis answering with an error (such as `WRONGTYPE`) is a
 plain `std::runtime_error`, so an outage can be told apart from a bad command.
 
+## Redis Cluster's state
+
+```cpp
+const sc::redis cluster{"redis1.example.com;redis2.example.com"};
+for (const auto &node: cluster.cluster_nodes())            // CLUSTER NODES, parsed
+    std::cout << node.address.to_string() << (node.master() ? " master " : " replica of " + node.master_id)
+              << (node.failing() ? " failing" : "") << '\n';           // node.slot_ranges(): {"0-5460"}
+const auto state = cluster.cluster_info();                 // CLUSTER INFO: cluster_state, cluster_current_epoch, ...
+const auto memory = cluster.info({"10.0.0.5", 6380}, "memory");  // INFO of one node: used_memory, ...
+cluster.cluster_failover({"10.0.0.6", 6379});              // CLUSTER FAILOVER on a replica, waiting until it's master
+```
+
+- `cluster_nodes()` gives each node's `id`, `address` (empty host when it doesn't know it
+  yet), `bus_port`, `flags` (`myself`, `master`, `slave`, `fail?`, `fail`, ...), `master_id` (a
+  replica's master), `ping_sent`, `pong_received`, `config_epoch`, `link` (`connected`,
+  `disconnected`), `slots` as ranges and `migrating`; `master()`, `replica()`, `failing()` and
+  `slot_ranges()` read them. `parse_cluster_nodes()` and `parse_info()` parse the text alone.
+- `info(node, section)` asks any node, a seed or not, with the client's options.
+- `cluster_failover(replica, limit)` runs `CLUSTER FAILOVER` (no writes lost: the master waits for
+  the replica to catch up), then polls `INFO replication` until the node reports `role:master`;
+  it throws when Redis refuses or it hasn't within `limit` (30 s).
+
 ## Demo
 
 `sc-redis-demo` stores and reads values (a string, then a hash one field, several

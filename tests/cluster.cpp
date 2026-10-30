@@ -40,6 +40,33 @@ int main() {
     const auto set_key = prefix + ":set";
     const auto script_key = prefix + ":script";
 
+    SECTION("The cluster's nodes, its state and a node's INFO (read only)");
+    {
+        const sc::redis reader{std::vector<sc::ip_endpoint>{{"redis1.1web.co.za", 6379}, {"redis2.1web.co.za", 6379}}};
+        const auto nodes = reader.cluster_nodes();
+        CHECK(nodes.size() >= 3);
+        int slots = 0;
+        const sc::redis_cluster_node *a_master = nullptr;
+        for (const auto &node: nodes) {
+            CHECK(!node.id.empty());
+            if (!node.master()) continue;
+            a_master = &node;
+            for (const auto &[first, last]: node.slots) slots += last - first + 1;
+        }
+        CHECK_EQ(slots, 16384);
+        const auto state = reader.cluster_info();
+        CHECK_EQ(state.at("cluster_state"), std::string{"ok"});
+        CHECK_EQ(state.at("cluster_slots_assigned"), std::string{"16384"});
+        if (a_master) {
+            const auto server = reader.info(a_master->address, "server");
+            CHECK(server.contains("redis_version") && server.contains("uptime_in_seconds"));
+            CHECK(reader.info(a_master->address, "memory").contains("used_memory"));
+            const auto replication = reader.info(a_master->address, "replication");
+            CHECK_EQ(replication.at("role"), std::string{"master"});
+        }
+        CHECK_THROWS_AS((void) reader.info(sc::ip_endpoint{"127.0.0.1", 1}), sc::redis_unavailable);
+    }
+
     SECTION("Redis Cluster string and hash values");
     sc::redis client{std::vector<sc::ip_endpoint>{
         {"redis1.1web.co.za", 6379},
