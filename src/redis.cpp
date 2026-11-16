@@ -1,8 +1,10 @@
 #include "redis.h"
+#include "redis_cluster.h"
 
 #include <hiredis/hiredis.h>
 
 #include <algorithm>
+#include <chrono>
 #include <charconv>
 #include <thread>
 #include <memory>
@@ -98,6 +100,7 @@ public:
                 auto reply = execute_on(seeds_[i], {"PING"}, false);
                 if (reply->type == REDIS_REPLY_STATUS && reply_text(*reply) == "PONG") {
                     current_ = i;
+                    load_slot_map();
                     return;
                 }
                 last_error = "Redis seed did not return PONG";
@@ -112,7 +115,27 @@ public:
     // tried in turn and the first that connects becomes the current one. A connection that breaks
     // mid-command isn't moved to another seed (it may already have run): that is retried once on
     // the same node, as execute_on() does, and otherwise reported.
+    // In a Redis Cluster a command with a key goes straight to the master of the key's slot, from
+    // the slot map (CLUSTER SHARDS, else CLUSTER SLOTS, read at connect; MOVED replies update it and
+    // ask for a full reload, at most once a second). Commands without a key, a slot no master is
+    // known for, or a master that can't be connected to fall back to the seeds as before.
     reply_ptr execute(const std::vector<std::string> &command) const {
+        if (refresh_due_) maybe_reload_slot_map();
+        if (cluster_) {
+            if (const auto key = redis_cluster::routing_key(command)) {
+                if (const int owner = slot_node_[redis_cluster::key_slot(*key)]; owner >= 0) {
+                    const ip_endpoint master = nodes_[static_cast<std::size_t>(owner)];
+                    try {
+                        return execute_from(master, command);
+                    } catch (const seed_unreachable &) {
+                        refresh_due_ = true; // its master is gone (a failover?): ask the seeds
+                    } catch (const sc::redis_unavailable &) {
+                        refresh_due_ = true;
+                        throw;
+                    }
+                }
+            }
+        }
         for (std::size_t tried = 1;; ++tried) {
             try {
                 return execute_from(seeds_[current_], command);
@@ -161,6 +184,15 @@ public:
         return found;
     }
 
+    // A Lua script's SHA-1 for EVALSHA, worked out once per script (at most 1000 kept).
+    const std::string &script_sha(const std::string &script) const {
+        if (const auto known = script_shas_.find(script); known != script_shas_.end()) return known->second;
+        if (script_shas_.size() >= 1000) script_shas_.clear();
+        return script_shas_.emplace(script, redis_cluster::sha1_hex(script)).first->second;
+    }
+
+    [[nodiscard]] bool cluster() const { return cluster_; }
+
 private:
     struct seed_unreachable : std::runtime_error {
         using std::runtime_error::runtime_error;
@@ -188,6 +220,11 @@ private:
             if (message.starts_with("MOVED ") || message.starts_with("ASK ")) {
                 endpoint = redirect_endpoint(*reply);
                 asking = message.starts_with("ASK ");
+                if (const auto slot = redis_cluster::moved_slot(message)) {
+                    // The slot lives elsewhere now: send it there from now on, and reload the whole map soon
+                    if (cluster_) slot_node_[static_cast<std::size_t>(*slot)] = node_index(endpoint);
+                    refresh_due_ = true;
+                }
                 continue;
             }
             throw std::runtime_error("Redis command failed: " + message);
@@ -236,6 +273,63 @@ private:
         return nodes;
     }
 
+    // The slot map from CLUSTER SHARDS (Redis 7+, Valkey), or CLUSTER SLOTS where that's unknown,
+    // asked of the seeds from the current one on. A server without cluster support isn't a
+    // cluster; when no seed gives a map the old one is kept (commands then go by the seeds).
+    void load_slot_map() const {
+        refreshed_ = std::chrono::steady_clock::now();
+        refresh_due_ = false;
+        for (std::size_t tried = 0; tried < seeds_.size(); ++tried) {
+            const auto &seed = seeds_[(current_ + tried) % seeds_.size()];
+            try {
+                auto reply = execute_on(seed, {"CLUSTER", "SHARDS"}, false);
+                std::vector<redis_cluster::slot_range> ranges;
+                if (reply->type == REDIS_REPLY_ERROR) {
+                    const auto message = reply_text(*reply);
+                    if (message.find("cluster support disabled") != std::string::npos ||
+                        message.find("This instance has cluster support disabled") != std::string::npos) {
+                        cluster_ = false;
+                        slot_node_.clear();
+                        return;
+                    }
+                    reply = execute_on(seed, {"CLUSTER", "SLOTS"}, false); // no CLUSTER SHARDS before Redis 7
+                    if (reply->type == REDIS_REPLY_ERROR) { // it answers, but isn't a cluster
+                        cluster_ = false;
+                        slot_node_.clear();
+                        return;
+                    }
+                    ranges = redis_cluster::parse_cluster_slots(*reply, seed.host);
+                } else {
+                    ranges = redis_cluster::parse_cluster_shards(*reply, seed.host);
+                }
+                if (ranges.empty()) continue;
+                nodes_.clear();
+                slot_node_.assign(redis_cluster::slot_count, -1);
+                for (const auto &range: ranges) {
+                    const int node = node_index(range.master);
+                    for (int slot = range.first; slot <= range.last; ++slot) slot_node_[static_cast<std::size_t>(slot)] = node;
+                }
+                cluster_ = true;
+                return;
+            } catch (const std::runtime_error &) {
+                // this seed can't be reached or gave something else: the next one
+            }
+        }
+    }
+
+    void maybe_reload_slot_map() const {
+        if (std::chrono::steady_clock::now() - refreshed_ >= std::chrono::seconds{1}) load_slot_map();
+    }
+
+    // node's index in nodes_, added when it isn't there yet.
+    int node_index(const ip_endpoint &node) const {
+        const auto name = node.to_string();
+        for (std::size_t i = 0; i < nodes_.size(); ++i)
+            if (nodes_[i].to_string() == name) return static_cast<int>(i);
+        nodes_.push_back(node);
+        return static_cast<int>(nodes_.size() - 1);
+    }
+
     static timeval to_timeval(const std::chrono::milliseconds duration) {
         return {static_cast<decltype(timeval::tv_sec)>(duration.count() / 1000),
                 static_cast<decltype(timeval::tv_usec)>(duration.count() % 1000 * 1000)};
@@ -263,6 +357,12 @@ private:
     mutable std::size_t current_ = 0; // the seed commands start from
     sc::redis_options options_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
+    mutable bool cluster_ = false;                 // a slot map was read: commands go by slot
+    mutable std::vector<ip_endpoint> nodes_;       // the masters in the slot map
+    mutable std::vector<int> slot_node_;           // per slot, its master's index in nodes_ (-1: unknown)
+    mutable bool refresh_due_ = false;             // a MOVED or a lost master: reload the map
+    mutable std::chrono::steady_clock::time_point refreshed_{};
+    mutable std::unordered_map<std::string, std::string> script_shas_;
 
     // The connection to endpoint, made if there is none yet. fresh says whether it was just made.
     redisContext &connection_for(const ip_endpoint &endpoint, bool &fresh) const {
@@ -478,10 +578,22 @@ std::vector<std::string> sc::redis::keys(const std::string &pattern, const std::
 
 std::optional<std::string> sc::redis::eval(const std::string &script, const std::vector<std::string> &keys,
                                            const std::vector<std::string> &arguments) const {
-    std::vector<std::string> command{"EVAL", script, std::to_string(keys.size())};
+    // EVALSHA first, so the script's text is sent only to a node that hasn't run it yet (NOSCRIPT);
+    // EVAL then runs it and keeps it there for next time.
+    std::vector<std::string> command{"EVALSHA", implementation_->script_sha(script), std::to_string(keys.size())};
     command.insert(command.end(), keys.begin(), keys.end());
     command.insert(command.end(), arguments.begin(), arguments.end());
-    const auto reply = implementation_->execute(command);
+    reply_ptr reply{nullptr, freeReplyObject};
+    try {
+        reply = implementation_->execute(command);
+    } catch (const sc::redis_unavailable &) {
+        throw;
+    } catch (const std::runtime_error &error) {
+        if (!std::string_view{error.what()}.starts_with("Redis command failed: NOSCRIPT No matching script")) throw; // not the server's own
+        command[0] = "EVAL";
+        command[1] = script;
+        reply = implementation_->execute(command);
+    }
     switch (reply->type) {
         case REDIS_REPLY_NIL:
             return std::nullopt;
@@ -500,6 +612,8 @@ bool sc::redis::expire(const std::string &key, const std::chrono::seconds ttl) c
     if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis EXPIRE returned an unexpected reply");
     return reply->integer == 1;
 }
+
+int sc::redis_key_slot(const std::string_view key) { return redis_cluster::key_slot(key); }
 
 bool sc::redis_cluster_node::has(const std::string_view flag) const {
     return std::ranges::find(flags, flag) != flags.end();

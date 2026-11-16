@@ -3,8 +3,14 @@
 `sc-redis` provides a small Redis Cluster client based on hiredis. Supply a
 single server or one or more Cluster seed nodes to the constructor as an
 `sc::ip_endpoints`: a `;`-separated string, a `std::vector<sc::ip_endpoint>` or a
-braced list. Entries without a port use 6379. It follows Redis Cluster `MOVED`
-and `ASK` redirections automatically.
+braced list. Entries without a port use 6379.
+
+In a Redis Cluster it reads the slot map at connect (`CLUSTER SHARDS`, or `CLUSTER SLOTS` on
+servers before Redis 7) and sends each command with a key straight to the master of the key's hash
+slot (CRC16 of the key or its `{hash tag}`; `redis_key_slot()` gives it), with one connection per
+node, opened when first needed. A `MOVED` reply updates the map (and reloads it, at most once a
+second); `ASK` is followed once. Commands without a key go to the first seed that answers. `eval()`
+sends `EVALSHA`, and the script itself only to a node that answers `NOSCRIPT`.
 
 **Documentation:** the [simply-cpp wiki](https://github.com/roelofrossouw/simply-cpp/wiki) has a [Redis guide](https://github.com/roelofrossouw/simply-cpp/wiki/Redis) and the [sc-redis reference](https://github.com/roelofrossouw/simply-cpp/wiki/Reference-sc-redis), plus [getting started](https://github.com/roelofrossouw/simply-cpp/wiki/Getting-Started) for the whole suite.
 
@@ -140,9 +146,14 @@ not necessary.
 
 ## Tests
 
-The `cluster` and `authenticated` CTests are small production integration
-tests. They use unique `sc-tmp:simply-cpp-redis:*` keys and remove them on
-exit. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
+The `cluster` and `authenticated` CTests are small integration tests. They use
+unique `sc-tmp:simply-cpp-redis:*` keys and remove them on exit. `cluster` needs
+`SC_REDIS_TEST_CLUSTER`, a test cluster's seeds (`host:port;host:port`), and is
+skipped without it; never point it at a production cluster. It also checks that
+no command was redirected (`errorstat_MOVED` on every master stays the same) and
+that scripts run by SHA-1. A throwaway three-master cluster is enough: e.g.
+`valkey-server --port 7000 --cluster-enabled yes` (and 7001, 7002), then
+`valkey-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002`. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
 environment; it is never stored in the repository. On each build server,
 declare it in the root-owned `/etc/simply-cpp/test.env` file. Redis deployment
 sources that file immediately before running CTest, so it can also hold future

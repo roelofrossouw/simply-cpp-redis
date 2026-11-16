@@ -57,6 +57,10 @@ namespace sc {
     // CLUSTER NODES' text as nodes. Throws std::runtime_error for a line that isn't one.
     [[nodiscard]] std::vector<redis_cluster_node> parse_cluster_nodes(std::string_view text);
 
+    // The Redis Cluster hash slot (0-16383) of key: CRC16 of its {hash tag} when it has a non-empty
+    // one, else of the whole key, as CLUSTER KEYSLOT gives it.
+    [[nodiscard]] int redis_key_slot(std::string_view key);
+
     // INFO's (or CLUSTER INFO's) text as its fields: "used_memory:1024" lines, the "# Memory"
     // headings and empty lines left out.
     [[nodiscard]] std::map<std::string, std::string> parse_info(std::string_view text);
@@ -66,6 +70,10 @@ namespace sc {
         // One server or several Cluster seed nodes: "redis1;redis2:6380", a
         // std::vector<ip_endpoint> or a braced list. Entries without a port use 6379.
         // Connects (and checks with PING) straight away, throwing if no seed answers.
+        // A Redis Cluster's slot map is read at connect (CLUSTER SHARDS, else CLUSTER SLOTS), so each
+        // command with a key goes straight to the master of its slot (one connection per node, opened
+        // when first needed); a MOVED reply updates the map, ASK is followed once. Commands without
+        // a key go to the first seed that answers.
         // A connection that broke since its last use is replaced once, transparently.
         // Not thread-safe: use one sc::redis per thread, or lock around it.
         explicit redis(ip_endpoints seeds);
@@ -120,7 +128,7 @@ namespace sc {
         // key, so nothing was set to expire.
         bool expire(const std::string &key, std::chrono::seconds ttl) const;
 
-        // Runs a Lua script on the server (EVAL), atomically, with its keys (KEYS[1], ...) and
+        // Runs a Lua script on the server (EVALSHA, and EVAL where the node hasn't got it yet), atomically, with its keys (KEYS[1], ...) and
         // arguments (ARGV[1], ...). In a Redis Cluster every key must be in one hash slot: one
         // key, or keys sharing a {hash tag}; the script runs on the node that holds them. Returns
         // what the script returns: a number or status as text, a string as itself, nil or false

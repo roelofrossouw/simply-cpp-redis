@@ -2,6 +2,8 @@
 #include <sc_test.h>
 
 #include <chrono>
+#include <cstdlib>
+#include <map>
 #include <iostream>
 #include <set>
 #include <string>
@@ -31,6 +33,14 @@ namespace {
 }
 
 int main() {
+    // A Redis Cluster to test against: its seeds, "host:port;host:port". Never a production cluster:
+    // this writes keys (sc-tmp:..., removed afterwards). Without it the test is skipped.
+    const auto *cluster = std::getenv("SC_REDIS_TEST_CLUSTER");
+    if (!cluster || !*cluster) {
+        std::cerr << "SC_REDIS_TEST_CLUSTER (a test cluster's seeds) isn't set: the Redis Cluster test is skipped\n";
+        return EXIT_SUCCESS;
+    }
+    const sc::ip_endpoints seeds{cluster};
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     const std::string prefix = "sc-tmp:simply-cpp-redis:cluster:" + suffix;
     const auto first_key = prefix + ":first";
@@ -42,7 +52,7 @@ int main() {
 
     SECTION("The cluster's nodes, its state and a node's INFO (read only)");
     {
-        const sc::redis reader{std::vector<sc::ip_endpoint>{{"redis1.1web.co.za", 6379}, {"redis2.1web.co.za", 6379}}};
+        const sc::redis reader{seeds};
         const auto nodes = reader.cluster_nodes();
         CHECK(nodes.size() >= 3);
         int slots = 0;
@@ -68,10 +78,7 @@ int main() {
     }
 
     SECTION("Redis Cluster string and hash values");
-    sc::redis client{std::vector<sc::ip_endpoint>{
-        {"redis1.1web.co.za", 6379},
-        {"redis2.1web.co.za", 6379},
-    }};
+    sc::redis client{seeds};
     key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key, script_key, once_key}};
 
     client.set(first_key, "first-value");
@@ -168,6 +175,44 @@ int main() {
         CHECK(!client.get(once_key).has_value()); // expired
         CHECK(client.set_if_absent(once_key, "again", std::chrono::seconds{60})); // absent again
         CHECK_THROWS_AS((void) client.set_if_absent(once_key, "x", std::chrono::seconds{0}), std::invalid_argument);
+    }
+
+    SECTION("Each key goes straight to its slot's master: no MOVED");
+    {
+        const auto moved = [&] {
+            long long total = 0;
+            for (const auto &node: client.cluster_nodes()) {
+                if (!node.master()) continue;
+                const auto stats = client.info(node.address, "errorstats");
+                if (const auto found = stats.find("errorstat_MOVED"); found != stats.end())
+                    total += std::stoll(found->second.substr(found->second.find('=') + 1));
+            }
+            return total;
+        };
+        std::vector<std::string> spread;
+        for (int i = 0; i < 60; ++i) spread.push_back(prefix + ":spread:" + std::to_string(i)); // slots on every master
+        key_cleanup spread_cleanup{client, spread};
+        const auto before = moved();
+        for (const auto &key: spread) {
+            client.set(key, "x");
+            CHECK_EQ(client.get(key), std::optional<std::string>{"x"});
+        }
+        CHECK_EQ(client.eval("return redis.call('GET', KEYS[1])", {spread[7]}), std::optional<std::string>{"x"});
+        CHECK_EQ(moved() - before, 0LL);
+
+        // A client that starts with a wrong map (another seed order) still ends up right
+        const sc::redis other{seeds};
+        for (const auto &key: spread) CHECK_EQ(other.get(key), std::optional<std::string>{"x"});
+        CHECK_EQ(moved() - before, 0LL);
+    }
+
+    SECTION("Scripts run by SHA-1 once a node has them (EVALSHA, EVAL after NOSCRIPT)");
+    {
+        const auto script = "return ARGV[1] .. '" + suffix + "'"; // new to every node
+        CHECK_EQ(client.eval(script, {script_key}, {"a"}), std::optional<std::string>{"a" + suffix});
+        CHECK_EQ(client.eval(script, {script_key}, {"b"}), std::optional<std::string>{"b" + suffix});
+        CHECK_EQ(client.eval(script, {}, {"c"}), std::optional<std::string>{"c" + suffix});
+        CHECK_THROWS_AS((void) client.eval("return redis.error_reply('NOSCRIPT is just text here')", {}), std::runtime_error);
     }
 
     SECTION("Keys matching a pattern, over every master");
