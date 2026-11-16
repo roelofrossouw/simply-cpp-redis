@@ -4,6 +4,7 @@
 #include "../src/redis_cluster.h"
 
 #include <redis.h>
+#include <hiredis/hiredis.h>
 #include <sc_test.h>
 
 #include <memory>
@@ -85,6 +86,9 @@ int main() {
 
     SECTION("The slot map from CLUSTER SHARDS (RESP2 and RESP3)");
     for (const bool resp3: {false, true}) {
+#if HIREDIS_MAJOR < 1
+        if (resp3) continue; // hiredis before 1.0 (Ubuntu jammy's 0.14) reads no RESP3; sc-redis never asks for it (no HELLO 3)
+#endif
         const auto text = "*3\r\n" +
                           shard({{0, 5460}}, {{"master", "10.0.100.45", 6379}, {"replica", "10.0.100.46", 6380}}, resp3) +
                           shard({{5461, 10922}}, {{"replica", "10.0.100.47", 6380}, {"primary", "10.0.100.46", 6379}}, resp3) +
