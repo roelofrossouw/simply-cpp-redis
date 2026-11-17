@@ -32,10 +32,14 @@ namespace {
 }
 
 int main() {
+    // A password-protected Redis to test against, "host:port", and its password. Never a production
+    // server: this writes keys (sc-tmp:..., removed afterwards). Without both the test is skipped.
+    const auto *host = std::getenv("SC_REDIS_TEST_AUTH_HOST");
     const auto *password = std::getenv("SC_REDIS_TEST_PASSWORD");
-    if (!password || !*password) {
-        std::cerr << "SC_REDIS_TEST_PASSWORD is required for the authenticated Redis integration test\n";
-        return EXIT_FAILURE;
+    if (!host || !*host || !password || !*password) {
+        std::cerr << "SC_REDIS_TEST_AUTH_HOST and SC_REDIS_TEST_PASSWORD (a test server and its password) aren't"
+                     " both set: the authenticated Redis test is skipped\n";
+        return EXIT_SUCCESS;
     }
 
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
@@ -46,7 +50,7 @@ int main() {
     const auto once_key = prefix + ":once";
 
     SECTION("Authenticated Redis string and hash values");
-    sc::redis client{"vms:20006", sc::redis_options{.password = password}};
+    sc::redis client{host, sc::redis_options{.password = password}};
     key_cleanup cleanup{client, {first_key, second_key, hash_key, once_key}};
 
     client.set(first_key, "first-value");

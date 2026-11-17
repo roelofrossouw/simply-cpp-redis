@@ -153,8 +153,10 @@ skipped without it; never point it at a production cluster. It also checks that
 no command was redirected (`errorstat_MOVED` on every master stays the same) and
 that scripts run by SHA-1. A throwaway three-master cluster is enough: e.g.
 `valkey-server --port 7000 --cluster-enabled yes` (and 7001, 7002), then
-`valkey-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002`. `authenticated` requires `SC_REDIS_TEST_PASSWORD` in the publishing
-environment; it is never stored in the repository. On each build server,
-declare it in the root-owned `/etc/simply-cpp/test.env` file. Redis deployment
+`valkey-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002`. `authenticated` needs `SC_REDIS_TEST_AUTH_HOST`, a password-protected test
+server (`host:port`), and `SC_REDIS_TEST_PASSWORD`, its password, and is skipped
+without them; never point it at a production server. The password is never
+stored in the repository. On each build server, declare both in the root-owned
+`/etc/simply-cpp/test.env` file. Redis deployment
 sources that file immediately before running CTest, so it can also hold future
 test-only environment variables.
