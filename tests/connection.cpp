@@ -2,7 +2,7 @@
 // unresponsive servers can be produced on demand: redis_options (AUTH, timeouts) and the
 // transparent reconnect after a connection breaks.
 
-#include <redis.h>
+#include <sc/redis/redis.h>
 #include <sc_test.h>
 
 #include <arpa/inet.h>

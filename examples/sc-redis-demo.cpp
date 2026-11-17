@@ -6,9 +6,9 @@
 #include <iostream>
 #include <string>
 
-#include <sc.h>
+#include <sc/core/sc.h>
 
-#include <redis.h>
+#include <sc/redis/redis.h>
 
 int main() {
     try {

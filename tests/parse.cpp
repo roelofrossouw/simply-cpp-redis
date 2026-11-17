@@ -1,5 +1,5 @@
 // CLUSTER NODES and INFO read into their parts, without a server.
-#include <redis.h>
+#include <sc/redis/redis.h>
 #include <sc_test.h>
 
 #include <string>

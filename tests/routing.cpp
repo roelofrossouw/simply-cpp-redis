@@ -3,7 +3,7 @@
 // reader from the bytes a server sends), and SHA-1 for EVALSHA.
 #include "../src/redis_cluster.h"
 
-#include <redis.h>
+#include <sc/redis/redis.h>
 #include <hiredis/hiredis.h>
 #include <sc_test.h>
 

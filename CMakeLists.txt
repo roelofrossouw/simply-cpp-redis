@@ -8,7 +8,7 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 1.20.0)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 2.2.0)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 if (SC_REDIS_HIREDIS_LIBRARY AND NOT EXISTS "${SC_REDIS_HIREDIS_LIBRARY}")
     message(STATUS "hiredis: the cached library location is gone, looking again")
@@ -16,7 +16,7 @@ if (SC_REDIS_HIREDIS_LIBRARY AND NOT EXISTS "${SC_REDIS_HIREDIS_LIBRARY}")
 endif ()
 find_library(SC_REDIS_HIREDIS_LIBRARY NAMES hiredis HINTS ${hiredis_LIBRARY_DIRS} REQUIRED)
 
-set(SOURCE_OBJECTS include/redis.h)
+set(SOURCE_OBJECTS include/sc/redis/redis.h)
 set(SOURCE_LIBRARIES)
 set(SOURCE_LINK_LIBRARIES)
 

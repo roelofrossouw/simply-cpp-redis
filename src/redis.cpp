@@ -1,4 +1,4 @@
-#include "redis.h"
+#include <sc/redis/redis.h>
 #include "redis_cluster.h"
 
 #include <hiredis/hiredis.h>

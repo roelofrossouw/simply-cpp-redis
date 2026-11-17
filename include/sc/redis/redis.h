@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <map>
-#include <ip_endpoints.h>
+#include <sc/core/ip_endpoints.h>
 #include <memory>
 #include <optional>
 #include <set>
