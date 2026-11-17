@@ -1,9 +1,12 @@
 #include <sc/redis/redis.h>
 #include <sc_test.h>
 
+#include "throwaway_server.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -32,13 +35,28 @@ namespace {
 }
 
 int main() {
-    // A password-protected Redis to test against, "host:port", and its password. Never a production
-    // server: this writes keys (sc-tmp:..., removed afterwards). Without both the test is skipped.
-    const auto *host = std::getenv("SC_REDIS_TEST_AUTH_HOST");
-    const auto *password = std::getenv("SC_REDIS_TEST_PASSWORD");
-    if (!host || !*host || !password || !*password) {
-        std::cerr << "SC_REDIS_TEST_AUTH_HOST and SC_REDIS_TEST_PASSWORD (a test server and its password) aren't"
-                     " both set: the authenticated Redis test is skipped\n";
+    // A password-protected Redis to test against: SC_REDIS_TEST_AUTH_HOST ("host:port") and
+    // SC_REDIS_TEST_PASSWORD, never a production server, as this writes keys (sc-tmp:..., removed
+    // afterwards). Without them the test starts a throwaway valkey-server or redis-server of its own
+    // (SC_REDIS_TEST_SERVER, else the PATH), and is skipped when there's none.
+    std::string host, password;
+    std::optional<sc_redis_test::throwaway_server> server;
+    if (const auto *given_host = std::getenv("SC_REDIS_TEST_AUTH_HOST"), *given_password = std::getenv("SC_REDIS_TEST_PASSWORD");
+        given_host && *given_host && given_password && *given_password) {
+        host = given_host;
+        password = given_password;
+    } else if (const auto binary = sc_redis_test::server_binary()) {
+        server.emplace(*binary);
+        if (!server->running()) {
+            std::cerr << binary->string() << " didn't start: the authenticated Redis test is skipped\n";
+            return EXIT_SUCCESS;
+        }
+        host = server->host();
+        password = server->password();
+        std::cerr << "Testing against a throwaway " << binary->filename().string() << " on " << host << '\n';
+    } else {
+        std::cerr << "No test server (SC_REDIS_TEST_AUTH_HOST and SC_REDIS_TEST_PASSWORD) and no valkey-server or"
+                     " redis-server to start: the authenticated Redis test is skipped\n";
         return EXIT_SUCCESS;
     }
 
