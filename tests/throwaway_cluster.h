@@ -150,7 +150,12 @@ namespace sc_redis_test {
 
         static std::string text(const int port, const std::vector<std::string> &command) {
             const auto reply = ask(port, command);
-            if (!reply || (reply->type != REDIS_REPLY_STRING && reply->type != REDIS_REPLY_VERB)) return {};
+            if (!reply) return {};
+            bool text = reply->type == REDIS_REPLY_STRING;
+#ifdef REDIS_REPLY_VERB // hiredis 1.0+ (RESP3); jammy's 0.14 has none
+            text = text || reply->type == REDIS_REPLY_VERB;
+#endif
+            if (!text) return {};
             return {reply->str, reply->len};
         }
 
