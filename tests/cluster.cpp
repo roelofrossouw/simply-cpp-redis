@@ -1,9 +1,12 @@
+#include "throwaway_cluster.h"
+
 #include <sc/redis/redis.h>
 #include <sc_test.h>
 
 #include <chrono>
 #include <cstdlib>
 #include <map>
+#include <optional>
 #include <iostream>
 #include <set>
 #include <string>
@@ -33,11 +36,25 @@ namespace {
 }
 
 int main() {
-    // A Redis Cluster to test against: its seeds, "host:port;host:port". Never a production cluster:
-    // this writes keys (sc-tmp:..., removed afterwards). Without it the test is skipped.
-    const auto *cluster = std::getenv("SC_REDIS_TEST_CLUSTER");
-    if (!cluster || !*cluster) {
-        std::cerr << "SC_REDIS_TEST_CLUSTER (a test cluster's seeds) isn't set: the Redis Cluster test is skipped\n";
+    // A Redis Cluster to test against: SC_REDIS_TEST_CLUSTER, its seeds ("host:port;host:port"),
+    // never a production cluster, as this writes keys (sc-tmp:..., removed afterwards). Without it the
+    // test starts a throwaway three-master cluster of its own (valkey-server or redis-server:
+    // SC_REDIS_TEST_SERVER, else the PATH), and is skipped when there's none.
+    std::string cluster;
+    std::optional<sc_redis_test::throwaway_cluster> throwaway;
+    if (const auto *given = std::getenv("SC_REDIS_TEST_CLUSTER"); given && *given) {
+        cluster = given;
+    } else if (const auto binary = sc_redis_test::server_binary()) {
+        throwaway.emplace(*binary);
+        if (!throwaway->ready()) {
+            std::cerr << "A throwaway " << binary->filename().string() << " cluster didn't come up: the Redis Cluster test is skipped\n";
+            return EXIT_SUCCESS;
+        }
+        cluster = throwaway->seeds();
+        std::cerr << "Testing against a throwaway " << binary->filename().string() << " cluster on " << cluster << '\n';
+    } else {
+        std::cerr << "No test cluster (SC_REDIS_TEST_CLUSTER) and no valkey-server or redis-server to start:"
+                     " the Redis Cluster test is skipped\n";
         return EXIT_SUCCESS;
     }
     const sc::ip_endpoints seeds{cluster};

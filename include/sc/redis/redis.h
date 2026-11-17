@@ -57,14 +57,6 @@ namespace sc {
     // CLUSTER NODES' text as nodes. Throws std::runtime_error for a line that isn't one.
     [[nodiscard]] std::vector<redis_cluster_node> parse_cluster_nodes(std::string_view text);
 
-    // The Redis Cluster hash slot (0-16383) of key: CRC16 of its {hash tag} when it has a non-empty
-    // one, else of the whole key, as CLUSTER KEYSLOT gives it.
-    [[nodiscard]] int redis_key_slot(std::string_view key);
-
-    // INFO's (or CLUSTER INFO's) text as its fields: "used_memory:1024" lines, the "# Memory"
-    // headings and empty lines left out.
-    [[nodiscard]] std::map<std::string, std::string> parse_info(std::string_view text);
-
     class redis {
     public:
         // One server or several Cluster seed nodes: "redis1;redis2:6380", a

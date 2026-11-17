@@ -12,6 +12,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,6 +20,10 @@
 
 namespace sc::redis_cluster {
     constexpr int slot_count = 16384;
+
+    // INFO's (or CLUSTER INFO's) text as its fields: "used_memory:1024" lines, the "# Memory"
+    // headings and empty lines left out (in redis.cpp).
+    [[nodiscard]] std::map<std::string, std::string> parse_info(std::string_view text);
 
     // CRC16-CCITT (XMODEM: polynomial 0x1021, initial 0), as Redis Cluster hashes keys.
     inline std::uint16_t crc16(const std::string_view data) {

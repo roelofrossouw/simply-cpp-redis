@@ -1,4 +1,6 @@
 // CLUSTER NODES and INFO read into their parts, without a server.
+#include "../src/redis_cluster.h"
+
 #include <sc/redis/redis.h>
 #include <sc_test.h>
 
@@ -37,7 +39,7 @@ int main() {
 
     SECTION("INFO: fields, headings and empty lines left out");
     {
-        const auto info = sc::parse_info("# Server\r\nredis_version:7.2.4\r\nuptime_in_seconds:1234\r\n\r\n# Keyspace\r\ndb0:keys=12,expires=3,avg_ttl=0\r\n");
+        const auto info = sc::redis_cluster::parse_info("# Server\r\nredis_version:7.2.4\r\nuptime_in_seconds:1234\r\n\r\n# Keyspace\r\ndb0:keys=12,expires=3,avg_ttl=0\r\n");
         CHECK_EQ(info.size(), std::size_t{3});
         CHECK_EQ(info.at("redis_version"), std::string{"7.2.4"});
         CHECK_EQ(info.at("db0"), std::string{"keys=12,expires=3,avg_ttl=0"});

@@ -613,7 +613,6 @@ bool sc::redis::expire(const std::string &key, const std::chrono::seconds ttl) c
     return reply->integer == 1;
 }
 
-int sc::redis_key_slot(const std::string_view key) { return redis_cluster::key_slot(key); }
 
 bool sc::redis_cluster_node::has(const std::string_view flag) const {
     return std::ranges::find(flags, flag) != flags.end();
@@ -694,7 +693,7 @@ std::vector<sc::redis_cluster_node> sc::parse_cluster_nodes(const std::string_vi
     return nodes;
 }
 
-std::map<std::string, std::string> sc::parse_info(const std::string_view text) {
+std::map<std::string, std::string> sc::redis_cluster::parse_info(const std::string_view text) {
     std::map<std::string, std::string> out;
     std::size_t start = 0;
     while (start < text.size()) {
@@ -716,13 +715,13 @@ std::vector<sc::redis_cluster_node> sc::redis::cluster_nodes() const {
 }
 
 std::map<std::string, std::string> sc::redis::cluster_info() const {
-    return parse_info(implementation_->text_from_seed({"CLUSTER", "INFO"}));
+    return redis_cluster::parse_info(implementation_->text_from_seed({"CLUSTER", "INFO"}));
 }
 
 std::map<std::string, std::string> sc::redis::info(const ip_endpoint &node, const std::string &section) const {
     std::vector<std::string> command{"INFO"};
     if (!section.empty()) command.push_back(section);
-    return parse_info(implementation_->text_on(node, command));
+    return redis_cluster::parse_info(implementation_->text_on(node, command));
 }
 
 void sc::redis::cluster_failover(const ip_endpoint &replica, const std::chrono::seconds limit) const {

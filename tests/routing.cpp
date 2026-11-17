@@ -60,7 +60,6 @@ int main() {
     CHECK(key_slot("foo{}{bar}") != key_slot("bar"));
     CHECK_EQ(key_slot("foo{{bar}}zap"), key_slot("{bar"));      // from the first { to the first } after it
     CHECK_EQ(key_slot("foo{bar}{zap}"), key_slot("bar"));
-    CHECK_EQ(sc::redis_key_slot("{user1000}.following"), key_slot("user1000"));
     CHECK_EQ(key_slot(""), 0);
 
     SECTION("The key a command goes by");

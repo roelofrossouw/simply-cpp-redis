@@ -7,7 +7,7 @@ braced list. Entries without a port use 6379.
 
 In a Redis Cluster it reads the slot map at connect (`CLUSTER SHARDS`, or `CLUSTER SLOTS` on
 servers before Redis 7) and sends each command with a key straight to the master of the key's hash
-slot (CRC16 of the key or its `{hash tag}`; `redis_key_slot()` gives it), with one connection per
+slot (CRC16 of the key or its `{hash tag}`), with one connection per
 node, opened when first needed. A `MOVED` reply updates the map (and reloads it, at most once a
 second); `ASK` is followed once. Commands without a key go to the first seed that answers. `eval()`
 sends `EVALSHA`, and the script itself only to a node that answers `NOSCRIPT`.
@@ -77,7 +77,7 @@ cluster.cluster_failover({"10.0.0.6", 6379});              // CLUSTER FAILOVER o
   yet), `bus_port`, `flags` (`myself`, `master`, `slave`, `fail?`, `fail`, ...), `master_id` (a
   replica's master), `ping_sent`, `pong_received`, `config_epoch`, `link` (`connected`,
   `disconnected`), `slots` as ranges and `migrating`; `master()`, `replica()`, `failing()` and
-  `slot_ranges()` read them. `parse_cluster_nodes()` and `parse_info()` parse the text alone.
+  `slot_ranges()` read them. `parse_cluster_nodes()` parses the text alone.
 - `info(node, section)` asks any node, a seed or not, with the client's options.
 - `cluster_failover(replica, limit)` runs `CLUSTER FAILOVER` (no writes lost: the master waits for
   the replica to catch up), then polls `INFO replication` until the node reports `role:master`;
@@ -147,13 +147,14 @@ not necessary.
 ## Tests
 
 The `cluster` and `authenticated` CTests are small integration tests. They use
-unique `sc-tmp:simply-cpp-redis:*` keys and remove them on exit. `cluster` needs
-`SC_REDIS_TEST_CLUSTER`, a test cluster's seeds (`host:port;host:port`), and is
-skipped without it; never point it at a production cluster. It also checks that
-no command was redirected (`errorstat_MOVED` on every master stays the same) and
-that scripts run by SHA-1. A throwaway three-master cluster is enough: e.g.
-`valkey-server --port 7000 --cluster-enabled yes` (and 7001, 7002), then
-`valkey-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002`. `authenticated` needs `SC_REDIS_TEST_AUTH_HOST`, a password-protected test
+unique `sc-tmp:simply-cpp-redis:*` keys and remove them on exit. `cluster` uses
+`SC_REDIS_TEST_CLUSTER`, a test cluster's seeds (`host:port;host:port`); never
+point it at a production cluster. Without it, it starts a throwaway three-master
+cluster of its own (valkey-server or redis-server, from `SC_REDIS_TEST_SERVER` or
+the PATH; free localhost ports, temporary folders, all removed afterwards; Redis
+6.0 and later), and is skipped when there's no server binary. It also checks
+that no command was redirected (`errorstat_MOVED` on every master stays the
+same, from Redis 6.2) and that scripts run by SHA-1. `authenticated` needs `SC_REDIS_TEST_AUTH_HOST`, a password-protected test
 server (`host:port`), and `SC_REDIS_TEST_PASSWORD`, its password, and is skipped
 without them; never point it at a production server. The password is never
 stored in the repository. On each build server, declare both in the root-owned
