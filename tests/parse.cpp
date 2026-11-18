@@ -16,7 +16,7 @@ int main() {
             "6ec23923021cf3ffec47632106199cb7f496ce01 10.0.100.45:6380@16380 slave 07c37dfeb235213a872192d90877d0cd55635b91 0 1426238316232 4 connected\r\n"
             "824fe116063bc5fcf9f4ffd895bc17aee7731ac3 10.0.100.45:6379@16379 slave,fail? 67ed2db8d677e59ec4a4cefb06858cf2a1a89fa1 1426238317741 1426238317239 2 disconnected\n"
             "e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca :0@0 master,noaddr - 0 0 0 disconnected\n";
-        const auto nodes = sc::parse_cluster_nodes(text);
+        const auto nodes = sc::redis::parse_cluster_nodes(text);
         CHECK_EQ(nodes.size(), std::size_t{6});
         if (nodes.size() == 6) {
             CHECK_EQ(nodes[0].address.to_string(), std::string{"10.0.100.46:6380"});
@@ -33,13 +33,13 @@ int main() {
             CHECK_EQ(nodes[4].ping_sent, std::int64_t{1426238317741});
             CHECK(nodes[5].address.host.empty() && nodes[5].has("noaddr"));
         }
-        CHECK_THROWS_AS((void) sc::parse_cluster_nodes("not a node line\n"), std::runtime_error);
-        CHECK(sc::parse_cluster_nodes("").empty());
+        CHECK_THROWS_AS((void) sc::redis::parse_cluster_nodes("not a node line\n"), std::runtime_error);
+        CHECK(sc::redis::parse_cluster_nodes("").empty());
     }
 
     SECTION("INFO: fields, headings and empty lines left out");
     {
-        const auto info = sc::redis_cluster::parse_info("# Server\r\nredis_version:7.2.4\r\nuptime_in_seconds:1234\r\n\r\n# Keyspace\r\ndb0:keys=12,expires=3,avg_ttl=0\r\n");
+        const auto info = sc::redis::cluster::parse_info("# Server\r\nredis_version:7.2.4\r\nuptime_in_seconds:1234\r\n\r\n# Keyspace\r\ndb0:keys=12,expires=3,avg_ttl=0\r\n");
         CHECK_EQ(info.size(), std::size_t{3});
         CHECK_EQ(info.at("redis_version"), std::string{"7.2.4"});
         CHECK_EQ(info.at("db0"), std::string{"keys=12,expires=3,avg_ttl=0"});

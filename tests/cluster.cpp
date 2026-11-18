@@ -16,7 +16,7 @@
 namespace {
     class key_cleanup {
     public:
-        key_cleanup(sc::redis &client, std::vector<std::string> keys) : client_(client), keys_(std::move(keys)) {
+        key_cleanup(sc::redis::client &client, std::vector<std::string> keys) : client_(client), keys_(std::move(keys)) {
         }
 
         ~key_cleanup() {
@@ -30,7 +30,7 @@ namespace {
         }
 
     private:
-        sc::redis &client_;
+        sc::redis::client &client_;
         std::vector<std::string> keys_;
     };
 }
@@ -69,11 +69,11 @@ int main() {
 
     SECTION("The cluster's nodes, its state and a node's INFO (read only)");
     {
-        const sc::redis reader{seeds};
+        const sc::redis::client reader{seeds};
         const auto nodes = reader.cluster_nodes();
         CHECK(nodes.size() >= 3);
         int slots = 0;
-        const sc::redis_cluster_node *a_master = nullptr;
+        const sc::redis::cluster_node *a_master = nullptr;
         for (const auto &node: nodes) {
             CHECK(!node.id.empty());
             if (!node.master()) continue;
@@ -91,11 +91,11 @@ int main() {
             const auto replication = reader.info(a_master->address, "replication");
             CHECK_EQ(replication.at("role"), std::string{"master"});
         }
-        CHECK_THROWS_AS((void) reader.info(sc::ip_endpoint{"127.0.0.1", 1}), sc::redis_unavailable);
+        CHECK_THROWS_AS((void) reader.info(sc::ip_endpoint{"127.0.0.1", 1}), sc::redis::unavailable);
     }
 
     SECTION("Redis Cluster string and hash values");
-    sc::redis client{seeds};
+    sc::redis::client client{seeds};
     key_cleanup cleanup{client, {first_key, second_key, hash_key, set_key, script_key, once_key}};
 
     client.set(first_key, "first-value");
@@ -141,7 +141,7 @@ int main() {
     bool wrong_type = false;
     try {
         (void) client.scard(hash_key); // a hash is not a set: WRONGTYPE
-    } catch (const sc::redis_unavailable &) {
+    } catch (const sc::redis::unavailable &) {
     } catch (const std::runtime_error &) {
         wrong_type = true;
     }
@@ -218,7 +218,7 @@ int main() {
         CHECK_EQ(moved() - before, 0LL);
 
         // A client that starts with a wrong map (another seed order) still ends up right
-        const sc::redis other{seeds};
+        const sc::redis::client other{seeds};
         for (const auto &key: spread) CHECK_EQ(other.get(key), std::optional<std::string>{"x"});
         CHECK_EQ(moved() - before, 0LL);
     }

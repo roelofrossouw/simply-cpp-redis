@@ -47,7 +47,7 @@ namespace {
 }
 
 int main() {
-    using namespace sc::redis_cluster;
+    using namespace sc::redis::cluster;
 
     SECTION("Hash slots: CRC16/XMODEM of the key or its hash tag");
     CHECK_EQ(crc16("123456789"), std::uint16_t{0x31C3}); // the reference value in the Redis Cluster spec

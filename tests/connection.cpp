@@ -1,5 +1,5 @@
 // Connection handling against a small fake Redis server on loopback, so dropped connections and
-// unresponsive servers can be produced on demand: redis_options (AUTH, timeouts) and the
+// unresponsive servers can be produced on demand: options (AUTH, timeouts) and the
 // transparent reconnect after a connection breaks.
 
 #include <sc/redis/redis.h>
@@ -169,7 +169,7 @@ namespace {
 int main() {
     SECTION("Set and get");
     fake_redis server;
-    sc::redis client{server.endpoint()};
+    sc::redis::client client{server.endpoint()};
     client.set("first", "1");
     CHECK_EQ(client.get("first").value_or(""), std::string{"1"});
     CHECK(!client.get("missing").has_value());
@@ -182,12 +182,12 @@ int main() {
     CHECK_THROWS_AS((void) client.set_if_absent("never", "x", 0s), std::invalid_argument);
     CHECK(!client.get("never").has_value());
 
-    SECTION("An error reply is a plain runtime_error, not redis_unavailable");
+    SECTION("An error reply is a plain runtime_error, not unavailable");
     {
         bool plain = false;
         try {
             client.hset("first", "field", "value"); // the fake server doesn't know HSET
-        } catch (const sc::redis_unavailable &) {
+        } catch (const sc::redis::unavailable &) {
         } catch (const std::runtime_error &) {
             plain = true;
         }
@@ -205,7 +205,7 @@ int main() {
     SECTION("Commands go to a seed that answered, not just the first");
     {
         // Nothing listens on port 1, so the first seed is down from the start.
-        sc::redis skips_dead_seed{"127.0.0.1:1;" + server.endpoint()};
+        sc::redis::client skips_dead_seed{"127.0.0.1:1;" + server.endpoint()};
         CHECK_NOTHROW(skips_dead_seed.set("via", "second seed"));
         CHECK_EQ(skips_dead_seed.get("via").value_or(""), std::string{"second seed"});
     }
@@ -214,7 +214,7 @@ int main() {
     {
         auto first = std::make_unique<fake_redis>();
         fake_redis second;
-        sc::redis client_of_two{first->endpoint() + ";" + second.endpoint()};
+        sc::redis::client client_of_two{first->endpoint() + ";" + second.endpoint()};
         client_of_two.set("where", "first");
         CHECK_EQ(first->connections(), 1);
         CHECK_EQ(second.connections(), 0); // not used while the first answers
@@ -224,26 +224,26 @@ int main() {
         CHECK_EQ(client_of_two.get("where").value_or(""), std::string{"second"});
         CHECK(second.connections() > 0);
 
-        CHECK_THROWS_AS((sc::redis{"127.0.0.1:1;127.0.0.1:2"}), sc::redis_unavailable);
+        CHECK_THROWS_AS((sc::redis::client{"127.0.0.1:1;127.0.0.1:2"}), sc::redis::unavailable);
     }
 
-    SECTION("AUTH with redis_options");
+    SECTION("AUTH with options");
     {
         fake_redis protected_server{"secret"};
-        sc::redis authenticated{protected_server.endpoint(), {.password = "secret"}};
+        sc::redis::client authenticated{protected_server.endpoint(), {.password = "secret"}};
         CHECK_NOTHROW(authenticated.set("key", "value"));
-        CHECK_THROWS_AS((sc::redis{protected_server.endpoint(), {.password = "wrong"}}), std::runtime_error);
+        CHECK_THROWS_AS((sc::redis::client{protected_server.endpoint(), {.password = "wrong"}}), std::runtime_error);
     }
 
     SECTION("A command timeout stops waiting for a server that doesn't answer");
     {
-        sc::redis impatient{server.endpoint(), {.command_timeout = 200ms}};
+        sc::redis::client impatient{server.endpoint(), {.command_timeout = 200ms}};
         server.set_silent(true);
         bool threw = false;
         const auto waited = time([&] {
             try {
                 impatient.set("third", "3");
-            } catch (const sc::redis_unavailable &) {
+            } catch (const sc::redis::unavailable &) {
                 threw = true;
             }
         });
@@ -262,8 +262,8 @@ int main() {
         const auto waited = time([&] {
             try {
                 // 10.255.255.1 is not routed, so the connect gets no answer at all.
-                sc::redis unreachable{"10.255.255.1:6379", {.connect_timeout = 200ms}};
-            } catch (const sc::redis_unavailable &) {
+                sc::redis::client unreachable{"10.255.255.1:6379", {.connect_timeout = 200ms}};
+            } catch (const sc::redis::unavailable &) {
                 threw = true;
             }
         });

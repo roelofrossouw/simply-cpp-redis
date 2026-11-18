@@ -15,10 +15,10 @@ sends `EVALSHA`, and the script itself only to a node that answers `NOSCRIPT`.
 **Documentation:** the [simply-cpp wiki](https://github.com/roelofrossouw/simply-cpp/wiki) has a [Redis guide](https://github.com/roelofrossouw/simply-cpp/wiki/Redis) and the [sc-redis reference](https://github.com/roelofrossouw/simply-cpp/wiki/Reference-sc-redis), plus [getting started](https://github.com/roelofrossouw/simply-cpp/wiki/Getting-Started) for the whole suite.
 
 ```cpp
-sc::redis standalone_cache{"redis.example.com"};
-sc::redis cache{"redis1.example.com;redis2.example.com:6380"};
-sc::redis listed_cache({{"redis1.example.com", 6379}, {"redis2.example.com", 6380}});
-sc::redis authenticated_cache(
+sc::redis::client standalone_cache{"redis.example.com"};
+sc::redis::client cache{"redis1.example.com;redis2.example.com:6380"};
+sc::redis::client listed_cache({{"redis1.example.com", 6379}, {"redis2.example.com", 6380}});
+sc::redis::client authenticated_cache(
     {"redis.example.com", 6380, 0, true, "configured-elsewhere"});
 cache.set("key", "value");
 const auto value = cache.get("key");
@@ -42,12 +42,12 @@ const auto devices = cache.keys("drtp:*");    // std::vector<std::string>, by SC
 hold the server up as KEYS would; its second argument is how many keys a step looks
 at (1000 by default; raise it for a big keyspace, where each step is a round trip).
 
-`redis_options` sets a password, database and timeouts for every node the client
+`options` sets a password, database and timeouts for every node the client
 connects to, including Cluster seeds given as a list:
 
 ```cpp
 using namespace std::chrono_literals;
-sc::redis cache{"redis1;redis2", {.password = "secret", .connect_timeout = 500ms, .command_timeout = 500ms}};
+sc::redis::client cache{"redis1;redis2", {.password = "secret", .connect_timeout = 500ms, .command_timeout = 500ms}};
 ```
 
 `connect_timeout` defaults to 2 seconds. `command_timeout` defaults to none: a
@@ -58,13 +58,13 @@ A client connects when it's constructed and keeps its connections open. If one
 breaks while idle (Redis restarted, or a firewall dropped it), the next command
 replaces it and runs again once, transparently. When Redis can't be reached
 (no connection, or it broke or timed out again) the client throws
-`sc::redis_unavailable`; Redis answering with an error (such as `WRONGTYPE`) is a
+`sc::redis::unavailable`; Redis answering with an error (such as `WRONGTYPE`) is a
 plain `std::runtime_error`, so an outage can be told apart from a bad command.
 
 ## Redis Cluster's state
 
 ```cpp
-const sc::redis cluster{"redis1.example.com;redis2.example.com"};
+const sc::redis::client cluster{"redis1.example.com;redis2.example.com"};
 for (const auto &node: cluster.cluster_nodes())            // CLUSTER NODES, parsed
     std::cout << node.address.to_string() << (node.master() ? " master " : " replica of " + node.master_id)
               << (node.failing() ? " failing" : "") << '\n';           // node.slot_ranges(): {"0-5460"}
@@ -106,8 +106,8 @@ configure time, so it always matches code that compiles:
 <!-- sc-example: examples/sc-redis-demo.cpp -->
 ```cpp
 sc::console::heading("Connecting");
-sc::redis cache{servers};
-sc::console::show_text("sc::redis cache{servers};", "connected in " + std::string(sw));
+sc::redis::client cache{servers};
+sc::console::show_text("sc::redis::client cache{servers};", "connected in " + std::string(sw));
 
 sc::console::heading("A string value");
 SC_STEP(cache.set("sc-tmp:demo:greeting", "Hello World!"));

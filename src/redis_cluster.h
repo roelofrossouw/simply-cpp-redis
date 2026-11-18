@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace sc::redis_cluster {
+namespace sc::redis::cluster {
     constexpr int slot_count = 16384;
 
     // INFO's (or CLUSTER INFO's) text as its fields: "used_memory:1024" lines, the "# Memory"

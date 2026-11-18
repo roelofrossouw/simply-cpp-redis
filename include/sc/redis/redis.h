@@ -15,16 +15,16 @@
 #include <utility>
 #include <vector>
 
-namespace sc {
+namespace sc::redis {
     // Thrown when Redis can't be reached: no connection could be made, or one broke or timed out
     // (after the one transparent retry). Redis answering with an error (WRONGTYPE, ...) is a
     // plain std::runtime_error instead, so callers can tell an outage from a bad command.
-    struct redis_unavailable : std::runtime_error {
+    struct unavailable : std::runtime_error {
         using std::runtime_error::runtime_error;
     };
 
-    // Settings for redis(ip_endpoints, redis_options), applied to every node it connects to.
-    struct redis_options {
+    // Settings for client(ip_endpoints, options), applied to every node it connects to.
+    struct options {
         std::string password;                                // sent with AUTH when not empty
         int db = 0;                                          // SELECT; Redis Cluster only has 0
         std::chrono::milliseconds connect_timeout{2000};
@@ -33,7 +33,7 @@ namespace sc {
 
     // One node as CLUSTER NODES gives it ("<id> <ip:port@bus> <flags> <master> <ping> <pong> <epoch>
     // <link> <slots>...").
-    struct redis_cluster_node {
+    struct cluster_node {
         std::string id;
         ip_endpoint address;            // its client address (host empty when it doesn't know it yet)
         int bus_port = 0;               // the cluster bus port, 0 when not given
@@ -55,9 +55,10 @@ namespace sc {
     };
 
     // CLUSTER NODES' text as nodes. Throws std::runtime_error for a line that isn't one.
-    [[nodiscard]] std::vector<redis_cluster_node> parse_cluster_nodes(std::string_view text);
+    [[nodiscard]] std::vector<cluster_node> parse_cluster_nodes(std::string_view text);
 
-    class redis {
+    // A Redis or Redis Cluster connection (sc::redis until 4.0.0).
+    class client {
     public:
         // One server or several Cluster seed nodes: "redis1;redis2:6380", a
         // std::vector<ip_endpoint> or a braced list. Entries without a port use 6379.
@@ -67,13 +68,13 @@ namespace sc {
         // when first needed); a MOVED reply updates the map, ASK is followed once. Commands without
         // a key go to the first seed that answers.
         // A connection that broke since its last use is replaced once, transparently.
-        // Not thread-safe: use one sc::redis per thread, or lock around it.
-        explicit redis(ip_endpoints seeds);
-        redis(ip_endpoints seeds, redis_options options);
-        ~redis();
+        // Not thread-safe: use one sc::redis::client per thread, or lock around it.
+        explicit client(ip_endpoints seeds);
+        client(ip_endpoints seeds, redis::options settings);
+        ~client();
 
-        redis(const redis &) = delete;
-        redis &operator=(const redis &) = delete;
+        client(const client &) = delete;
+        client &operator=(const client &) = delete;
 
         void set(const std::string &key, const std::string &value) const;
         [[nodiscard]] std::optional<std::string> get(const std::string &key) const;
@@ -131,7 +132,7 @@ namespace sc {
         // Redis Cluster's state, as the current seed sees it.
         // The nodes (CLUSTER NODES), in its order. Throws std::runtime_error when the server isn't a
         // cluster.
-        [[nodiscard]] std::vector<redis_cluster_node> cluster_nodes() const;
+        [[nodiscard]] std::vector<cluster_node> cluster_nodes() const;
         // CLUSTER INFO's fields: cluster_state ("ok", "fail"), cluster_current_epoch,
         // cluster_slots_assigned, cluster_known_nodes, ...
         [[nodiscard]] std::map<std::string, std::string> cluster_info() const;

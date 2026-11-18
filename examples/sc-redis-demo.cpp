@@ -19,8 +19,8 @@ int main() {
 
         // [readme]
         sc::console::heading("Connecting");
-        sc::redis cache{servers};
-        sc::console::show_text("sc::redis cache{servers};", "connected in " + std::string(sw));
+        sc::redis::client cache{servers};
+        sc::console::show_text("sc::redis::client cache{servers};", "connected in " + std::string(sw));
 
         sc::console::heading("A string value");
         SC_STEP(cache.set("sc-tmp:demo:greeting", "Hello World!"));

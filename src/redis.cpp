@@ -18,8 +18,8 @@ namespace {
 
     // An open connection failed (closed, reset or timed out), as opposed to Redis answering
     // with an error. The connection is unusable afterwards.
-    struct connection_lost : sc::redis_unavailable {
-        using sc::redis_unavailable::redis_unavailable;
+    struct connection_lost : sc::redis::unavailable {
+        using sc::redis::unavailable::unavailable;
     };
 
     std::string reply_text(const redisReply &reply) {
@@ -82,10 +82,10 @@ namespace {
     }
 }
 
-class sc::redis::implementation {
+class sc::redis::client::implementation {
 public:
-    implementation(std::vector<ip_endpoint> seeds, sc::redis_options options)
-        : options_(std::move(options)) {
+    implementation(std::vector<ip_endpoint> seeds, sc::redis::options settings)
+        : options_(std::move(settings)) {
         if (seeds.empty()) throw std::invalid_argument("At least one Redis endpoint is required");
         if (options_.db < 0) throw std::invalid_argument("Redis database must not be negative");
         if (options_.connect_timeout.count() <= 0) throw std::invalid_argument("Redis connect timeout must be positive");
@@ -108,7 +108,7 @@ public:
                 last_error = error.what();
             }
         }
-        throw sc::redis_unavailable("Unable to connect to any Redis endpoint: " + last_error);
+        throw sc::redis::unavailable("Unable to connect to any Redis endpoint: " + last_error);
     }
 
     // Runs command from the current seed. When that seed can't be connected to, the next seeds are
@@ -122,14 +122,14 @@ public:
     reply_ptr execute(const std::vector<std::string> &command) const {
         if (refresh_due_) maybe_reload_slot_map();
         if (cluster_) {
-            if (const auto key = redis_cluster::routing_key(command)) {
-                if (const int owner = slot_node_[redis_cluster::key_slot(*key)]; owner >= 0) {
+            if (const auto key = cluster::routing_key(command)) {
+                if (const int owner = slot_node_[cluster::key_slot(*key)]; owner >= 0) {
                     const ip_endpoint master = nodes_[static_cast<std::size_t>(owner)];
                     try {
                         return execute_from(master, command);
                     } catch (const seed_unreachable &) {
                         refresh_due_ = true; // its master is gone (a failover?): ask the seeds
-                    } catch (const sc::redis_unavailable &) {
+                    } catch (const sc::redis::unavailable &) {
                         refresh_due_ = true;
                         throw;
                     }
@@ -140,7 +140,7 @@ public:
             try {
                 return execute_from(seeds_[current_], command);
             } catch (const seed_unreachable &error) {
-                if (tried >= seeds_.size()) throw sc::redis_unavailable(error.what());
+                if (tried >= seeds_.size()) throw sc::redis::unavailable(error.what());
                 current_ = (current_ + 1) % seeds_.size();
             }
         }
@@ -188,7 +188,7 @@ public:
     const std::string &script_sha(const std::string &script) const {
         if (const auto known = script_shas_.find(script); known != script_shas_.end()) return known->second;
         if (script_shas_.size() >= 1000) script_shas_.clear();
-        return script_shas_.emplace(script, redis_cluster::sha1_hex(script)).first->second;
+        return script_shas_.emplace(script, cluster::sha1_hex(script)).first->second;
     }
 
     [[nodiscard]] bool cluster() const { return cluster_; }
@@ -209,7 +209,7 @@ private:
                 reply = execute_on(endpoint, command, asking);
             } catch (const connection_lost &) {
                 throw;
-            } catch (const sc::redis_unavailable &error) {
+            } catch (const sc::redis::unavailable &error) {
                 if (attempt == 0) throw seed_unreachable(error.what()); // couldn't connect to the seed
                 throw;
             }
@@ -220,7 +220,7 @@ private:
             if (message.starts_with("MOVED ") || message.starts_with("ASK ")) {
                 endpoint = redirect_endpoint(*reply);
                 asking = message.starts_with("ASK ");
-                if (const auto slot = redis_cluster::moved_slot(message)) {
+                if (const auto slot = cluster::moved_slot(message)) {
                     // The slot lives elsewhere now: send it there from now on, and reload the whole map soon
                     if (cluster_) slot_node_[static_cast<std::size_t>(*slot)] = node_index(endpoint);
                     refresh_due_ = true;
@@ -283,7 +283,7 @@ private:
             const auto &seed = seeds_[(current_ + tried) % seeds_.size()];
             try {
                 auto reply = execute_on(seed, {"CLUSTER", "SHARDS"}, false);
-                std::vector<redis_cluster::slot_range> ranges;
+                std::vector<cluster::slot_range> ranges;
                 if (reply->type == REDIS_REPLY_ERROR) {
                     const auto message = reply_text(*reply);
                     if (message.find("cluster support disabled") != std::string::npos ||
@@ -298,13 +298,13 @@ private:
                         slot_node_.clear();
                         return;
                     }
-                    ranges = redis_cluster::parse_cluster_slots(*reply, seed.host);
+                    ranges = cluster::parse_cluster_slots(*reply, seed.host);
                 } else {
-                    ranges = redis_cluster::parse_cluster_shards(*reply, seed.host);
+                    ranges = cluster::parse_cluster_shards(*reply, seed.host);
                 }
                 if (ranges.empty()) continue;
                 nodes_.clear();
-                slot_node_.assign(redis_cluster::slot_count, -1);
+                slot_node_.assign(cluster::slot_count, -1);
                 for (const auto &range: ranges) {
                     const int node = node_index(range.master);
                     for (int slot = range.first; slot <= range.last; ++slot) slot_node_[static_cast<std::size_t>(slot)] = node;
@@ -336,11 +336,11 @@ private:
     }
 
     struct context {
-        context(const ip_endpoint &endpoint, const sc::redis_options &options) : connection(nullptr, redisFree) {
+        context(const ip_endpoint &endpoint, const sc::redis::options &options) : connection(nullptr, redisFree) {
             connection.reset(redisConnectWithTimeout(endpoint.host.c_str(), endpoint.port,
                                                      to_timeval(options.connect_timeout)));
             if (!connection) throw std::runtime_error("Unable to allocate Redis connection");
-            if (connection->err) throw sc::redis_unavailable("Unable to connect to Redis " + endpoint.to_string() +
+            if (connection->err) throw sc::redis::unavailable("Unable to connect to Redis " + endpoint.to_string() +
                                                               ": " + connection->errstr);
             if (options.command_timeout.count() > 0 &&
                 redisSetTimeout(connection.get(), to_timeval(options.command_timeout)) != REDIS_OK) {
@@ -355,7 +355,7 @@ private:
 
     std::vector<ip_endpoint> seeds_;
     mutable std::size_t current_ = 0; // the seed commands start from
-    sc::redis_options options_;
+    sc::redis::options options_;
     mutable std::unordered_map<std::string, std::unique_ptr<context>> contexts_;
     mutable bool cluster_ = false;                 // a slot map was read: commands go by slot
     mutable std::vector<ip_endpoint> nodes_;       // the masters in the slot map
@@ -426,23 +426,23 @@ namespace {
     }
 }
 
-sc::redis::redis(ip_endpoints seeds) : redis(std::move(seeds), redis_options{}) {
+sc::redis::client::client(ip_endpoints seeds) : client(std::move(seeds), redis::options{}) {
 }
 
-sc::redis::redis(ip_endpoints seeds, redis_options options)
-    : implementation_(std::make_unique<implementation>(with_default_port(seeds), std::move(options))) {
+sc::redis::client::client(ip_endpoints seeds, redis::options settings)
+    : implementation_(std::make_unique<implementation>(with_default_port(seeds), std::move(settings))) {
 }
 
-sc::redis::~redis() = default;
+sc::redis::client::~client() = default;
 
-void sc::redis::set(const std::string &key, const std::string &value) const {
+void sc::redis::client::set(const std::string &key, const std::string &value) const {
     const auto reply = implementation_->execute({"SET", key, value});
     if (reply->type != REDIS_REPLY_STATUS || reply_text(*reply) != "OK") {
         throw std::runtime_error("Redis SET failed: " + reply_text(*reply));
     }
 }
 
-bool sc::redis::set_if_absent(const std::string &key, const std::string &value,
+bool sc::redis::client::set_if_absent(const std::string &key, const std::string &value,
                               const std::chrono::seconds ttl) const {
     if (ttl < std::chrono::seconds{1}) throw std::invalid_argument("Redis SET NX expiry must be at least 1 second");
     const auto reply = implementation_->execute({"SET", key, value, "NX", "EX", std::to_string(ttl.count())});
@@ -463,20 +463,20 @@ namespace {
     }
 }
 
-std::optional<std::string> sc::redis::get(const std::string &key) const {
+std::optional<std::string> sc::redis::client::get(const std::string &key) const {
     return optional_string(*implementation_->execute({"GET", key}), "GET");
 }
 
-void sc::redis::hset(const std::string &key, const std::string &field, const std::string &value) const {
+void sc::redis::client::hset(const std::string &key, const std::string &field, const std::string &value) const {
     const auto reply = implementation_->execute({"HSET", key, field, value});
     if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis HSET returned an unexpected reply");
 }
 
-std::optional<std::string> sc::redis::hget(const std::string &key, const std::string &field) const {
+std::optional<std::string> sc::redis::client::hget(const std::string &key, const std::string &field) const {
     return optional_string(*implementation_->execute({"HGET", key, field}), "HGET");
 }
 
-std::vector<std::optional<std::string>> sc::redis::hmget(const std::string &key,
+std::vector<std::optional<std::string>> sc::redis::client::hmget(const std::string &key,
                                                          const std::vector<std::string> &fields) const {
     if (fields.empty()) return {};
     std::vector<std::string> command{"HMGET", key};
@@ -496,7 +496,7 @@ std::vector<std::optional<std::string>> sc::redis::hmget(const std::string &key,
     return values;
 }
 
-std::map<std::string, std::string> sc::redis::hgetall(const std::string &key) const {
+std::map<std::string, std::string> sc::redis::client::hgetall(const std::string &key) const {
     const auto reply = implementation_->execute({"HGETALL", key});
     // RESP2 answers with a flat array of field, value, field, value...; RESP3 with a map.
     bool flat_pairs = reply->type == REDIS_REPLY_ARRAY;
@@ -516,35 +516,35 @@ std::map<std::string, std::string> sc::redis::hgetall(const std::string &key) co
     return fields;
 }
 
-std::size_t sc::redis::sadd(const std::string &key, const std::string &member) const {
+std::size_t sc::redis::client::sadd(const std::string &key, const std::string &member) const {
     return sadd(key, std::vector{member});
 }
 
-std::size_t sc::redis::sadd(const std::string &key, const std::initializer_list<std::string> members) const {
+std::size_t sc::redis::client::sadd(const std::string &key, const std::initializer_list<std::string> members) const {
     return sadd(key, std::vector<std::string>{members});
 }
 
-std::size_t sc::redis::sadd(const std::string &key, const std::vector<std::string> &members) const {
+std::size_t sc::redis::client::sadd(const std::string &key, const std::vector<std::string> &members) const {
     return implementation_->change_members("SADD", key, members);
 }
 
-std::size_t sc::redis::srem(const std::string &key, const std::string &member) const {
+std::size_t sc::redis::client::srem(const std::string &key, const std::string &member) const {
     return srem(key, std::vector{member});
 }
 
-std::size_t sc::redis::srem(const std::string &key, const std::initializer_list<std::string> members) const {
+std::size_t sc::redis::client::srem(const std::string &key, const std::initializer_list<std::string> members) const {
     return srem(key, std::vector<std::string>{members});
 }
 
-std::size_t sc::redis::srem(const std::string &key, const std::vector<std::string> &members) const {
+std::size_t sc::redis::client::srem(const std::string &key, const std::vector<std::string> &members) const {
     return implementation_->change_members("SREM", key, members);
 }
 
-std::size_t sc::redis::scard(const std::string &key) const {
+std::size_t sc::redis::client::scard(const std::string &key) const {
     return count_reply(*implementation_->execute({"SCARD", key}), "SCARD");
 }
 
-std::set<std::string> sc::redis::smembers(const std::string &key) const {
+std::set<std::string> sc::redis::client::smembers(const std::string &key) const {
     const auto reply = implementation_->execute({"SMEMBERS", key});
     // RESP2 answers with an array; RESP3 with a set.
     bool members_list = reply->type == REDIS_REPLY_ARRAY;
@@ -561,22 +561,22 @@ std::set<std::string> sc::redis::smembers(const std::string &key) const {
     return members;
 }
 
-bool sc::redis::sismember(const std::string &key, const std::string &member) const {
+bool sc::redis::client::sismember(const std::string &key, const std::string &member) const {
     const auto reply = implementation_->execute({"SISMEMBER", key, member});
     if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis SISMEMBER returned an unexpected reply");
     return reply->integer == 1;
 }
 
-std::size_t sc::redis::erase(const std::string &key) const {
+std::size_t sc::redis::client::erase(const std::string &key) const {
     return count_reply(*implementation_->execute({"DEL", key}), "DEL");
 }
 
-std::vector<std::string> sc::redis::keys(const std::string &pattern, const std::size_t count) const {
+std::vector<std::string> sc::redis::client::keys(const std::string &pattern, const std::size_t count) const {
     if (count == 0) throw std::invalid_argument("Redis SCAN count must be at least 1");
     return implementation_->scan(pattern, count);
 }
 
-std::optional<std::string> sc::redis::eval(const std::string &script, const std::vector<std::string> &keys,
+std::optional<std::string> sc::redis::client::eval(const std::string &script, const std::vector<std::string> &keys,
                                            const std::vector<std::string> &arguments) const {
     // EVALSHA first, so the script's text is sent only to a node that hasn't run it yet (NOSCRIPT);
     // EVAL then runs it and keeps it there for next time.
@@ -586,7 +586,7 @@ std::optional<std::string> sc::redis::eval(const std::string &script, const std:
     reply_ptr reply{nullptr, freeReplyObject};
     try {
         reply = implementation_->execute(command);
-    } catch (const sc::redis_unavailable &) {
+    } catch (const sc::redis::unavailable &) {
         throw;
     } catch (const std::runtime_error &error) {
         if (!std::string_view{error.what()}.starts_with("Redis command failed: NOSCRIPT No matching script")) throw; // not the server's own
@@ -607,18 +607,18 @@ std::optional<std::string> sc::redis::eval(const std::string &script, const std:
     }
 }
 
-bool sc::redis::expire(const std::string &key, const std::chrono::seconds ttl) const {
+bool sc::redis::client::expire(const std::string &key, const std::chrono::seconds ttl) const {
     const auto reply = implementation_->execute({"EXPIRE", key, std::to_string(ttl.count())});
     if (reply->type != REDIS_REPLY_INTEGER) throw std::runtime_error("Redis EXPIRE returned an unexpected reply");
     return reply->integer == 1;
 }
 
 
-bool sc::redis_cluster_node::has(const std::string_view flag) const {
+bool sc::redis::cluster_node::has(const std::string_view flag) const {
     return std::ranges::find(flags, flag) != flags.end();
 }
 
-std::vector<std::string> sc::redis_cluster_node::slot_ranges() const {
+std::vector<std::string> sc::redis::cluster_node::slot_ranges() const {
     std::vector<std::string> out;
     for (const auto &[first, last]: slots) out.push_back(first == last ? std::to_string(first) : std::to_string(first) + "-" + std::to_string(last));
     return out;
@@ -645,8 +645,8 @@ namespace {
     }
 }
 
-std::vector<sc::redis_cluster_node> sc::parse_cluster_nodes(const std::string_view text) {
-    std::vector<redis_cluster_node> nodes;
+std::vector<sc::redis::cluster_node> sc::redis::parse_cluster_nodes(const std::string_view text) {
+    std::vector<cluster_node> nodes;
     std::size_t start = 0;
     while (start < text.size()) {
         auto end = text.find('\n', start);
@@ -657,7 +657,7 @@ std::vector<sc::redis_cluster_node> sc::parse_cluster_nodes(const std::string_vi
         if (line.empty()) continue;
         const auto fields = fields_of(line);
         if (fields.size() < 8) throw std::runtime_error("Redis CLUSTER NODES: \"" + std::string{line} + "\" has too few fields");
-        redis_cluster_node node;
+        cluster_node node;
         node.id = fields[0];
         // ip:port@cport[,hostname]
         auto address = fields[1];
@@ -693,7 +693,7 @@ std::vector<sc::redis_cluster_node> sc::parse_cluster_nodes(const std::string_vi
     return nodes;
 }
 
-std::map<std::string, std::string> sc::redis_cluster::parse_info(const std::string_view text) {
+std::map<std::string, std::string> sc::redis::cluster::parse_info(const std::string_view text) {
     std::map<std::string, std::string> out;
     std::size_t start = 0;
     while (start < text.size()) {
@@ -710,21 +710,21 @@ std::map<std::string, std::string> sc::redis_cluster::parse_info(const std::stri
     return out;
 }
 
-std::vector<sc::redis_cluster_node> sc::redis::cluster_nodes() const {
+std::vector<sc::redis::cluster_node> sc::redis::client::cluster_nodes() const {
     return parse_cluster_nodes(implementation_->text_from_seed({"CLUSTER", "NODES"}));
 }
 
-std::map<std::string, std::string> sc::redis::cluster_info() const {
-    return redis_cluster::parse_info(implementation_->text_from_seed({"CLUSTER", "INFO"}));
+std::map<std::string, std::string> sc::redis::client::cluster_info() const {
+    return cluster::parse_info(implementation_->text_from_seed({"CLUSTER", "INFO"}));
 }
 
-std::map<std::string, std::string> sc::redis::info(const ip_endpoint &node, const std::string &section) const {
+std::map<std::string, std::string> sc::redis::client::info(const ip_endpoint &node, const std::string &section) const {
     std::vector<std::string> command{"INFO"};
     if (!section.empty()) command.push_back(section);
-    return redis_cluster::parse_info(implementation_->text_on(node, command));
+    return cluster::parse_info(implementation_->text_on(node, command));
 }
 
-void sc::redis::cluster_failover(const ip_endpoint &replica, const std::chrono::seconds limit) const {
+void sc::redis::client::cluster_failover(const ip_endpoint &replica, const std::chrono::seconds limit) const {
     const auto answer = implementation_->text_on(replica, {"CLUSTER", "FAILOVER"});
     if (answer != "OK") throw std::runtime_error("Redis CLUSTER FAILOVER on " + replica.to_string() + " answered " + answer);
     const auto until = std::chrono::steady_clock::now() + limit;

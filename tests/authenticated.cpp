@@ -15,7 +15,7 @@
 namespace {
     class key_cleanup {
     public:
-        key_cleanup(sc::redis &client, std::vector<std::string> keys) : client_(client), keys_(std::move(keys)) {
+        key_cleanup(sc::redis::client &client, std::vector<std::string> keys) : client_(client), keys_(std::move(keys)) {
         }
 
         ~key_cleanup() {
@@ -29,7 +29,7 @@ namespace {
         }
 
     private:
-        sc::redis &client_;
+        sc::redis::client &client_;
         std::vector<std::string> keys_;
     };
 }
@@ -68,7 +68,7 @@ int main() {
     const auto once_key = prefix + ":once";
 
     SECTION("Authenticated Redis string and hash values");
-    sc::redis client{host, sc::redis_options{.password = password}};
+    sc::redis::client client{host, sc::redis::options{.password = password}};
     key_cleanup cleanup{client, {first_key, second_key, hash_key, once_key}};
 
     client.set(first_key, "first-value");
