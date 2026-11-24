@@ -5,7 +5,7 @@
 // and SHA-1 for EVALSHA.
 
 #include <hiredis/hiredis.h>
-#include <sc/core/ip_endpoints.h>
+#include <sc/net/ip_endpoints.h>
 
 #include <algorithm>
 #include <array>

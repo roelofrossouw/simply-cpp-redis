@@ -8,7 +8,8 @@ option(SC_REDIS_BUILD_TESTS "Build simply-cpp-redis tests" ${PROJECT_IS_TOP_LEVE
 get_sc_version()
 message(STATUS "SimplyCPP ${SC_MODULE} Version: ${SC_VERSION}")
 
-find_or_install_package(sc-core simply-cpp-dev simply-cpp 3.0.0)
+find_or_install_package(sc-core simply-cpp-dev simply-cpp 4.0.0)
+find_or_install_package(sc-net simply-cpp-net-dev simply-cpp-net 1.0.0)
 config_or_install_package(hiredis libhiredis-dev hiredis)
 if (SC_REDIS_HIREDIS_LIBRARY AND NOT EXISTS "${SC_REDIS_HIREDIS_LIBRARY}")
     message(STATUS "hiredis: the cached library location is gone, looking again")
@@ -22,7 +23,7 @@ set(SOURCE_LINK_LIBRARIES)
 
 add_sc_object(redis
         LINK_LIBRARIES PkgConfig::hiredis
-        PUBLIC_LINK_LIBRARIES sc::sc-core ${SC_REDIS_HIREDIS_LIBRARY})
+        PUBLIC_LINK_LIBRARIES sc::sc-core sc::sc-net ${SC_REDIS_HIREDIS_LIBRARY})
 
 add_sc_libraries(DESCRIPTION "simply-cpp Redis Cluster client")
 target_compile_features(sc-redis PUBLIC cxx_std_17)
@@ -40,4 +41,4 @@ endif ()
 
 add_sc_example(sc-redis-demo)
 
-package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 3.0.0~)" libhiredis-dev)
+package_sc_module(DEV_DEPENDS "simply-cpp-dev (>= 4.0.0~)" "simply-cpp-net-dev (>= 1.0.0~)" libhiredis-dev)
